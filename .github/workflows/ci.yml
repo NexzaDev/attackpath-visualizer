@@ -19,9 +19,18 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Install Linux GUI build prerequisites
+      - name: Install GUI build prerequisites from Fyne CI documentation
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev libxkbcommon-dev
+        run: sudo apt-get update && sudo apt-get install -y bc gcc libgl1-mesa-dev libwayland-dev libx11-dev libxkbcommon-dev xorg-dev xvfb language-pack-en
+      - name: Install Windows C compiler
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc
+          update: true
+      - name: Resolve module checksums
+        run: go mod download
       - name: Verify formatting
         shell: bash
         run: |
@@ -35,13 +44,36 @@ jobs:
         run: go vet ./... || { echo "::error title=go vet::Static analysis failed; inspect this step's diagnostics"; exit 1; }
       - name: Unit and integration tests
         shell: bash
-        run: go test -race ./... || { echo "::error title=Go tests::Tests failed; inspect this step's diagnostics"; exit 1; }
-      - name: Native GUI build
+        run: go test ./... || { echo "::error title=Go tests::Tests failed; inspect this step's diagnostics"; exit 1; }
+      - name: Build CLI-only and native GUI variants
         shell: bash
         run: go build -tags nogui ./... && go build ./...
+      - name: Render all dashboard screens with software renderer
+        if: runner.os == 'Linux'
+        run: go run ./cmd/render-screenshots -out artifacts/ui
+      - name: Upload screenshot evidence
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: attackpath-visualizer-ui-screenshots
+          path: artifacts/ui/*.png
+          if-no-files-found: error
       - name: Dependency vulnerability scan
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           "$(go env GOPATH)/bin/govulncheck" ./... || { echo "::error title=govulncheck::Dependency vulnerability scan failed"; exit 1; }
+  race:
+    name: race detector (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install GUI build prerequisites from Fyne CI documentation
+        run: sudo apt-get update && sudo apt-get install -y bc gcc libgl1-mesa-dev libwayland-dev libx11-dev libxkbcommon-dev xorg-dev xvfb language-pack-en
+      - run: go mod download
+      - name: Race-enabled tests
+        run: go test -race ./... || { echo "::error title=Go race tests::Race-enabled tests failed; inspect this step's diagnostics"; exit 1; }

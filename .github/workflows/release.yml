@@ -1,0 +1,125 @@
+name: Release packages
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  package:
+    name: package (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            platform: windows-x64
+            target: windows
+          - runner: macos-latest
+            platform: macos-arm64
+            target: darwin
+          - runner: ubuntu-latest
+            platform: linux-x64
+            target: linux
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install Linux GUI build prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bc gcc libgl1-mesa-dev libwayland-dev libx11-dev libxkbcommon-dev xorg-dev xvfb language-pack-en
+      - name: Install Windows C compiler
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc
+          update: true
+      - name: Verify native runner architecture
+        if: matrix.target == 'darwin'
+        run: test "$(uname -m)" = "arm64"
+      - name: Collect build dependency licenses
+        shell: bash
+        run: |
+          mkdir -p assets/licenses
+          cp LICENSE assets/licenses/AttackPath-Visualizer-MIT.txt
+          go run github.com/google/go-licenses@v1.6.0 save ./cmd/attackpath-visualizer --save_path assets/licenses
+          go run github.com/google/go-licenses@v1.6.0 report ./cmd/attackpath-visualizer > THIRD_PARTY_NOTICES.md
+          cp THIRD_PARTY_NOTICES.md assets/docs/THIRD_PARTY_NOTICES.md
+      - name: Build release packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-output
+          if [ "${{ matrix.target }}" = "windows" ]; then
+            go build -tags nogui -o "release-output/attackpath-visualizer-cli-${{ matrix.platform }}.exe" ./cmd/attackpath-visualizer
+          else
+            go build -tags nogui -o "release-output/attackpath-visualizer-cli-${{ matrix.platform }}" ./cmd/attackpath-visualizer
+          fi
+          (cd cmd/attackpath-visualizer && go run fyne.io/tools/cmd/fyne@v1.26.1 package --target "${{ matrix.target }}" --release)
+          mkdir -p release-output/cli-bundle/licenses release-output/cli-bundle/docs
+          cli_name="attackpath-visualizer-cli-${{ matrix.platform }}"
+          if [ "${{ matrix.target }}" = "windows" ]; then cli_name="${cli_name}.exe"; fi
+          cp "release-output/${cli_name}" release-output/cli-bundle/
+          cp README.md LICENSE THIRD_PARTY_NOTICES.md release-output/cli-bundle/
+          cp docs/USAGE.md docs/LICENSES.md release-output/cli-bundle/docs/
+          cp -R assets/licenses/. release-output/cli-bundle/licenses/
+          if [ "${{ matrix.target }}" = "windows" ]; then
+            cp "cmd/attackpath-visualizer/AttackPath Visualizer.exe" release-output/attackpath-visualizer-windows-x64.exe
+            mkdir -p release-output/windows-bundle/licenses release-output/windows-bundle/docs
+            cp release-output/attackpath-visualizer-windows-x64.exe release-output/windows-bundle/
+            cp README.md LICENSE THIRD_PARTY_NOTICES.md release-output/windows-bundle/
+            cp docs/USAGE.md docs/LICENSES.md release-output/windows-bundle/docs/
+            cp -R assets/licenses/. release-output/windows-bundle/licenses/
+            powershell -NoProfile -Command "Compress-Archive -Path 'release-output/cli-bundle/*' -DestinationPath 'release-output/attackpath-visualizer-cli-windows-x64.zip' -Force"
+            powershell -NoProfile -Command "Compress-Archive -Path 'release-output/windows-bundle/*' -DestinationPath 'release-output/attackpath-visualizer-windows-x64.zip' -Force"
+          elif [ "${{ matrix.target }}" = "darwin" ]; then
+            mkdir -p release-output/macos-bundle/licenses release-output/macos-bundle/docs
+            cp -R "cmd/attackpath-visualizer/AttackPath Visualizer.app" release-output/macos-bundle/
+            cp README.md LICENSE THIRD_PARTY_NOTICES.md release-output/macos-bundle/
+            cp docs/USAGE.md docs/LICENSES.md release-output/macos-bundle/docs/
+            cp -R assets/licenses/. release-output/macos-bundle/licenses/
+            tar -czf release-output/attackpath-visualizer-macos-arm64.tar.gz -C release-output/macos-bundle .
+            tar -czf release-output/attackpath-visualizer-cli-macos-arm64.tar.gz -C release-output/cli-bundle .
+          else
+            mkdir -p release-output/linux-bundle/licenses release-output/linux-bundle/docs
+            tar -xJf 'cmd/attackpath-visualizer/AttackPath Visualizer.tar.xz' -C release-output/linux-bundle
+            cp README.md LICENSE THIRD_PARTY_NOTICES.md release-output/linux-bundle/
+            cp docs/USAGE.md docs/LICENSES.md release-output/linux-bundle/docs/
+            cp -R assets/licenses/. release-output/linux-bundle/licenses/
+            tar -czf release-output/attackpath-visualizer-linux-x64.tar.gz -C release-output/linux-bundle .
+            tar -czf release-output/attackpath-visualizer-cli-linux-x64.tar.gz -C release-output/cli-bundle .
+          fi
+          rm -rf release-output/cli-bundle release-output/windows-bundle release-output/macos-bundle release-output/linux-bundle
+          rm -f "release-output/${cli_name}"
+      - name: Upload platform packages for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: attackpath-visualizer-release-${{ matrix.platform }}
+          path: release-output/*
+          if-no-files-found: error
+  draft-release:
+    name: attach packages to a draft pre-release
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: attackpath-visualizer-release-*
+          path: release-output
+          merge-multiple: true
+      - name: Verify package set and create checksums
+        run: |
+          set -euo pipefail
+          test -f release-output/attackpath-visualizer-windows-x64.exe
+          test -f release-output/attackpath-visualizer-macos-arm64.tar.gz
+          test -f release-output/attackpath-visualizer-linux-x64.tar.gz
+          (cd release-output && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          cat release-output/SHA256SUMS
+      - name: Create draft pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v0.1.0-dev release-output/* --draft --prerelease --target "${GITHUB_SHA}" --title "AttackPath Visualizer v0.1.0-dev (dev beta)" --notes-file docs/RELEASE_NOTES.md

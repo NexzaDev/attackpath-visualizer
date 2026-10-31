@@ -1,0 +1,13 @@
+{
+  "assets": [
+    {"id":"edge-gateway","name":"Public API gateway","kind":"service","impact":3,"description":"Internet-facing application entry point"},
+    {"id":"build-identity","name":"Build automation identity","kind":"identity","impact":4,"description":"Workload identity with deployment permissions"},
+    {"id":"artifact-store","name":"Release artifact store","kind":"storage","impact":4,"description":"Internal package and artifact repository"},
+    {"id":"customer-db","name":"Customer records database","kind":"database","impact":5,"description":"Synthetic high-impact data asset"}
+  ],
+  "edges": [
+    {"id":"gateway-token","from":"edge-gateway","to":"build-identity","relation":"accepts workload token","confidence":86,"evidence":{"source":"demo://identity-inventory","finding":"Trust policy accepts the gateway workload","observed":"2026-10-01T12:00:00Z"}},
+    {"id":"identity-artifact","from":"build-identity","to":"artifact-store","relation":"publishes packages","confidence":91,"evidence":{"source":"demo://permission-review","finding":"Identity has package publish permission","observed":"2026-10-01T12:05:00Z"}},
+    {"id":"artifact-database","from":"artifact-store","to":"customer-db","relation":"deployment configuration references","confidence":62,"evidence":{"source":"demo://configuration-audit","finding":"Synthetic deployment metadata links the service and data store","observed":"2026-10-01T12:10:00Z"}}
+  ]
+}

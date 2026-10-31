@@ -16,6 +16,26 @@ func TestFindPathsRanksAndExplains(t *testing.T) {
 	}
 }
 
+func TestAllPathsIncludesDisconnectedCycleComponents(t *testing.T) {
+	graph := Graph{
+		Assets: []Asset{{ID: "root", Name: "Root", Kind: "service", Impact: 2}, {ID: "leaf", Name: "Leaf", Kind: "database", Impact: 3}, {ID: "cycle-a", Name: "Cycle A", Kind: "service", Impact: 2}, {ID: "cycle-b", Name: "Cycle B", Kind: "service", Impact: 3}},
+		Edges:  []Edge{{ID: "root-leaf", From: "root", To: "leaf", Relation: "connects", Confidence: 100}, {ID: "cycle-ab", From: "cycle-a", To: "cycle-b", Relation: "connects", Confidence: 100}, {ID: "cycle-ba", From: "cycle-b", To: "cycle-a", Relation: "connects", Confidence: 100}},
+	}
+	paths, err := graph.AllPaths(8, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundCycle := false
+	for _, path := range paths {
+		if len(path.Assets) == 2 && path.Assets[0].ID == "cycle-a" && path.Assets[1].ID == "cycle-b" {
+			foundCycle = true
+		}
+	}
+	if !foundCycle {
+		t.Fatalf("a disconnected cyclic component was skipped: %#v", paths)
+	}
+}
+
 func TestValidateRejectsDanglingEdges(t *testing.T) {
 	graph := Graph{Assets: []Asset{{ID: "a", Name: "A", Kind: "service", Impact: 1}}, Edges: []Edge{{ID: "e", From: "a", To: "missing", Relation: "connects", Confidence: 100}}}
 	if err := graph.Validate(); err == nil {

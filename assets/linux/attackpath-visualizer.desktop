@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=AttackPath Visualizer
+Comment=Local defensive exposure relationship graph explorer
+Exec=attackpath-visualizer
+Icon=attackpath-visualizer
+Terminal=false
+Categories=Security;Utility;

@@ -7,12 +7,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/NexzaDev/attackpath-visualizer/internal/domain"
+	"github.com/NexzaDev/attackpath-visualizer/internal/notifications"
 	_ "modernc.org/sqlite"
 )
 
-type Store struct{ db *sql.DB }
+type Store struct {
+	db   *sql.DB
+	path string
+}
 
 func Open(path string) (*Store, error) {
 	if path != ":memory:" {
@@ -28,10 +33,23 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-	for _, statement := range []string{"PRAGMA journal_mode=WAL", "PRAGMA busy_timeout=5000", "PRAGMA foreign_keys=ON", `CREATE TABLE IF NOT EXISTS assets (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, impact INTEGER NOT NULL CHECK(impact BETWEEN 1 AND 5), description TEXT NOT NULL)`, `CREATE TABLE IF NOT EXISTS edges (id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES assets(id), target_id TEXT NOT NULL REFERENCES assets(id), relation TEXT NOT NULL, confidence INTEGER NOT NULL CHECK(confidence BETWEEN 0 AND 100), evidence_json TEXT NOT NULL)`, `CREATE INDEX IF NOT EXISTS edges_source_idx ON edges(source_id)`, `CREATE INDEX IF NOT EXISTS edges_target_idx ON edges(target_id)`, `CREATE TABLE IF NOT EXISTS imports (id INTEGER PRIMARY KEY, source TEXT NOT NULL, asset_count INTEGER NOT NULL, edge_count INTEGER NOT NULL, imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`} {
+	for _, statement := range []string{"PRAGMA journal_mode=WAL", "PRAGMA busy_timeout=5000", "PRAGMA foreign_keys=ON"} {
 		if _, err := db.Exec(statement); err != nil {
 			db.Close()
-			return nil, fmt.Errorf("initialize database: %w", err)
+			return nil, fmt.Errorf("configure database: %w", err)
+		}
+	}
+	if err = runMigrations(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	for _, rule := range []struct {
+		typeName string
+		severity int
+	}{{"critical_path", 4}, {"validation_failed", 3}} {
+		if _, err := db.Exec("INSERT OR IGNORE INTO notification_rules(event_type,enabled,minimum_severity,quiet_start,quiet_end,detailed_text) VALUES(?,1,?,'22:00','07:00',0)", rule.typeName, rule.severity); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("initialize notification rules: %w", err)
 		}
 	}
 	if path != ":memory:" {
@@ -40,10 +58,20 @@ func Open(path string) (*Store, error) {
 			return nil, fmt.Errorf("restrict database permissions: %w", err)
 		}
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, path: path}, nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+func (s *Store) Path() string { return s.path }
+
+func (s *Store) RecordFailedImport(ctx context.Context, source string) error {
+	_, err := s.db.ExecContext(ctx, "INSERT INTO imports(source,asset_count,edge_count,status,error_message) VALUES(?,0,0,'failed','Graph document did not pass validation.')", source)
+	if err != nil {
+		return fmt.Errorf("record failed import: %w", err)
+	}
+	return nil
+}
 
 func (s *Store) ReplaceGraph(ctx context.Context, graph domain.Graph, source string) error {
 	if err := graph.Validate(); err != nil {
@@ -125,19 +153,19 @@ func (s *Store) Graph(ctx context.Context) (domain.Graph, error) {
 }
 
 func (s *Store) ImportHistory(ctx context.Context) ([]map[string]any, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT source,asset_count,edge_count,imported_at FROM imports ORDER BY id DESC LIMIT 50")
+	rows, err := s.db.QueryContext(ctx, "SELECT source,asset_count,edge_count,imported_at,status,error_message FROM imports ORDER BY id DESC LIMIT 50")
 	if err != nil {
 		return nil, fmt.Errorf("read import history: %w", err)
 	}
 	defer rows.Close()
 	items := make([]map[string]any, 0)
 	for rows.Next() {
-		var source, imported string
+		var source, imported, status, message string
 		var assets, edges int
-		if err = rows.Scan(&source, &assets, &edges, &imported); err != nil {
+		if err = rows.Scan(&source, &assets, &edges, &imported, &status, &message); err != nil {
 			return nil, err
 		}
-		items = append(items, map[string]any{"source": source, "assets": assets, "edges": edges, "imported_at": imported})
+		items = append(items, map[string]any{"source": source, "assets": assets, "edges": edges, "imported_at": imported, "status": status, "message": message})
 	}
 	return items, rows.Err()
 }

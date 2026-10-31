@@ -31,6 +31,70 @@ func TestImportRejectsInvalidInputWithoutReplacingState(t *testing.T) {
 	}
 }
 
+func TestImportNotificationsAreMinimalAndDeduplicated(t *testing.T) {
+	store, err := repository.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	app := Service{Store: store}
+	invalid := `{"assets":[`
+	if err = app.Import(context.Background(), strings.NewReader(invalid), "bad input"); err == nil {
+		t.Fatal("expected invalid JSON")
+	}
+	if err = app.Import(context.Background(), strings.NewReader(invalid), "bad input"); err == nil {
+		t.Fatal("expected invalid JSON")
+	}
+	items, err := store.Notifications(context.Background(), 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Title != "Import failed validation" || strings.Contains(items[0].Detail, invalid) {
+		t.Fatalf("unexpected validation notification: %#v", items)
+	}
+}
+
+func TestImportRecordsNewHighImpactPaths(t *testing.T) {
+	store, err := repository.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	app := Service{Store: store}
+	graph := `{"assets":[{"id":"entry","name":"Entry","kind":"service","impact":1},{"id":"data","name":"Sensitive dataset","kind":"database","impact":5}],"edges":[{"id":"relationship","from":"entry","to":"data","relation":"has access","confidence":95}]}`
+	if err = app.Import(context.Background(), strings.NewReader(graph), "synthetic test"); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.Notifications(context.Background(), 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Title != "New critical potential path" {
+		t.Fatalf("unexpected critical path notification: %#v", items)
+	}
+}
+
+func TestImportNotifiesWhenExistingPathBecomesCritical(t *testing.T) {
+	store, err := repository.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	app := Service{Store: store}
+	lowRisk := `{"assets":[{"id":"entry","name":"Entry","kind":"service","impact":1},{"id":"data","name":"Sensitive dataset","kind":"database","impact":5}],"edges":[{"id":"relationship","from":"entry","to":"data","relation":"has access","confidence":50}]}`
+	if err = app.Import(context.Background(), strings.NewReader(lowRisk), "low risk"); err != nil {
+		t.Fatal(err)
+	}
+	highRisk := strings.Replace(lowRisk, `"confidence":50`, `"confidence":95`, 1)
+	if err = app.Import(context.Background(), strings.NewReader(highRisk), "increased confidence"); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.Notifications(context.Background(), 20)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("items=%v err=%v", items, err)
+	}
+}
+
 func TestImportRejectsOversizedDocument(t *testing.T) {
 	store, err := repository.Open(":memory:")
 	if err != nil {

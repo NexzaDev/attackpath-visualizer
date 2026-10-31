@@ -10,6 +10,7 @@ test:
 	go test -race ./...
 
 build:
+	mkdir -p bin
 	go build -o bin/attackpath-visualizer ./cmd/attackpath-visualizer
 
 check: format lint test build

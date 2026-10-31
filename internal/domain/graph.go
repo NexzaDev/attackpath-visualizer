@@ -76,10 +76,83 @@ func (g Graph) Validate() error {
 	return nil
 }
 
+func (g Graph) AllPaths(maxDepth, limit int) ([]Path, error) {
+	if maxDepth < 1 || maxDepth > 32 || limit < 1 || limit > 1000 {
+		return nil, errors.New("max depth must be 1–32 and limit must be 1–1000")
+	}
+	if err := g.Validate(); err != nil {
+		return nil, err
+	}
+	incoming := make(map[string]bool, len(g.Assets))
+	neighbors := make(map[string][]string, len(g.Assets))
+	for _, edge := range g.Edges {
+		incoming[edge.To] = true
+		neighbors[edge.From] = append(neighbors[edge.From], edge.To)
+		neighbors[edge.To] = append(neighbors[edge.To], edge.From)
+	}
+	assets := make([]string, 0, len(g.Assets))
+	for _, asset := range g.Assets {
+		assets = append(assets, asset.ID)
+	}
+	sort.Strings(assets)
+	sources := make([]string, 0)
+	visited := make(map[string]bool, len(g.Assets))
+	for _, first := range assets {
+		if visited[first] {
+			continue
+		}
+		component := []string{first}
+		visited[first] = true
+		for index := 0; index < len(component); index++ {
+			for _, neighbor := range neighbors[component[index]] {
+				if !visited[neighbor] {
+					visited[neighbor] = true
+					component = append(component, neighbor)
+				}
+			}
+		}
+		componentRoots := make([]string, 0)
+		for _, id := range component {
+			if !incoming[id] {
+				componentRoots = append(componentRoots, id)
+			}
+		}
+		if len(componentRoots) == 0 {
+			sources = append(sources, component...)
+		} else {
+			sources = append(sources, componentRoots...)
+		}
+	}
+	sort.Strings(sources)
+	paths := make([]Path, 0)
+	for _, source := range sources {
+		remaining := limit - len(paths)
+		if remaining <= 0 {
+			break
+		}
+		found, err := g.findPaths(source, "", maxDepth, remaining)
+		if err != nil {
+			return nil, err
+		}
+		paths = append(paths, found...)
+	}
+	sort.SliceStable(paths, func(i, j int) bool {
+		if paths[i].Score == paths[j].Score {
+			return paths[i].Confidence > paths[j].Confidence
+		}
+		return paths[i].Score > paths[j].Score
+	})
+	return paths, nil
+}
+
 func (g Graph) FindPaths(source, target string, maxDepth, limit int) ([]Path, error) {
 	if err := g.Validate(); err != nil {
 		return nil, err
 	}
+	return g.findPaths(source, target, maxDepth, limit)
+}
+
+func (g Graph) findPaths(source, target string, maxDepth, limit int) ([]Path, error) {
 	if maxDepth < 1 || maxDepth > 32 || limit < 1 || limit > 1000 {
 		return nil, errors.New("max depth must be 1–32 and limit must be 1–1000")
 	}
