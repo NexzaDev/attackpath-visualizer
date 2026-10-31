@@ -622,7 +622,7 @@ func (d *Dashboard) aboutScreen() fyne.CanvasObject {
 	diagnostics := diagnosticReport()
 	diagPreview := widget.NewMultiLineEntry()
 	diagPreview.SetText(diagnostics)
-	diagPreview.SetReadOnly(true)
+	diagPreview.Disable()
 	copyReport := widget.NewButton("Copy diagnostic report", func() {
 		dialog.ShowConfirm("Preview diagnostics", diagnostics+"\n\nOnly this sanitized report will be copied.", func(ok bool) {
 			if ok {
@@ -636,7 +636,7 @@ func (d *Dashboard) aboutScreen() fyne.CanvasObject {
 	usageSearch.SetPlaceHolder("Find in the offline usage guide")
 	usageText := widget.NewMultiLineEntry()
 	usageText.SetText(string(usage))
-	usageText.SetReadOnly(true)
+	usageText.Disable()
 	usageSearch.OnChanged = func(search string) {
 		if strings.TrimSpace(search) == "" {
 			usageText.SetText(string(usage))
@@ -666,15 +666,15 @@ func (d *Dashboard) aboutScreen() fyne.CanvasObject {
 	usagePage := container.NewBorder(usageSearch, widget.NewButton("Open full documentation on GitHub", func() { d.confirmOpenURL(meta.Repository + "/blob/main/docs/USAGE.md") }), nil, nil, usageText)
 	shortcuts := widget.NewMultiLineEntry()
 	shortcuts.SetText("Ctrl/Cmd+1 … 9  Navigate categories\nCtrl/Cmd+F       Focus global search\nCtrl/Cmd+,       Open Settings\nF1               Open Usage guide\nEnter            Open selected table record")
-	shortcuts.SetReadOnly(true)
+	shortcuts.Disable()
 	readmeText := widget.NewMultiLineEntry()
 	readmeData, _ := assets.Files.ReadFile("docs/README.md")
 	readmeText.SetText(string(readmeData))
-	readmeText.SetReadOnly(true)
+	readmeText.Disable()
 	licenseText := widget.NewMultiLineEntry()
 	licenseData, _ := assets.Files.ReadFile("docs/LICENSES.md")
 	licenseText.SetText(string(licenseData))
-	licenseText.SetReadOnly(true)
+	licenseText.Disable()
 	thirdPartyNotices, _ := assets.Files.ReadFile("docs/THIRD_PARTY_NOTICES.md")
 	licenseOptions := []string{"Offline license summary", "Third-party dependency inventory"}
 	_ = fs.WalkDir(assets.Files, "licenses", func(path string, entry fs.DirEntry, err error) error {
@@ -988,6 +988,14 @@ func openExternal(target string) error {
 		return fmt.Errorf("open external link: %w", err)
 	}
 	return nil
+}
+
+func pathLabel(path domain.Path) string {
+	labels := make([]string, len(path.Assets))
+	for index, asset := range path.Assets {
+		labels[index] = fmt.Sprintf("%s [%s]", asset.Name, asset.ID)
+	}
+	return strings.Join(labels, " → ")
 }
 
 func (d *Dashboard) showPathDetails(label string) {
