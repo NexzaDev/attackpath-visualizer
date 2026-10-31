@@ -41,10 +41,26 @@ jobs:
           fi
       - name: Static analysis
         shell: bash
-        run: go vet ./... || { echo "::error title=go vet::Static analysis failed; inspect this step's diagnostics"; exit 1; }
+        run: |
+          set +e
+          go vet ./... > /tmp/go-vet.log 2>&1
+          status=$?
+          cat /tmp/go-vet.log
+          if [ "$status" -ne 0 ]; then
+            while IFS= read -r line; do printf '::error::%s\n' "$line"; done < /tmp/go-vet.log
+            exit "$status"
+          fi
       - name: Unit and integration tests
         shell: bash
-        run: go test ./... || { echo "::error title=Go tests::Tests failed; inspect this step's diagnostics"; exit 1; }
+        run: |
+          set +e
+          go test ./... > /tmp/go-test.log 2>&1
+          status=$?
+          cat /tmp/go-test.log
+          if [ "$status" -ne 0 ]; then
+            while IFS= read -r line; do printf '::error::%s\n' "$line"; done < /tmp/go-test.log
+            exit "$status"
+          fi
       - name: Build CLI-only and native GUI variants
         shell: bash
         run: go build -tags nogui ./... && go build ./...
@@ -76,4 +92,13 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y bc gcc libgl1-mesa-dev libwayland-dev libx11-dev libxkbcommon-dev xorg-dev xvfb language-pack-en
       - run: go mod download all
       - name: Race-enabled tests
-        run: go test -race ./... || { echo "::error title=Go race tests::Race-enabled tests failed; inspect this step's diagnostics"; exit 1; }
+        shell: bash
+        run: |
+          set +e
+          go test -race ./... > /tmp/go-race.log 2>&1
+          status=$?
+          cat /tmp/go-race.log
+          if [ "$status" -ne 0 ]; then
+            while IFS= read -r line; do printf '::error::%s\n' "$line"; done < /tmp/go-race.log
+            exit "$status"
+          fi
