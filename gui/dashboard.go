@@ -25,7 +25,6 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 	"github.com/NexzaDev/attackpath-visualizer/assets"
 	"github.com/NexzaDev/attackpath-visualizer/internal/domain"

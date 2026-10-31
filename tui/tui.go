@@ -54,10 +54,6 @@ func Run(requestedDB string) error {
 		if err != nil {
 			return err
 		}
-		history, historyErr := store.ImportHistory(ctx)
-		if historyErr != nil {
-			return historyErr
-		}
 		fmt.Printf("\n%s %s\n1 Overview  2 Graph  3 Paths  4 Assets  5 Evidence  6 Remediation  7 Imports  8 Reports  9 Notifications  10 Settings  11 About  12 Diagnostics  13 Switch to Dashboard  0 Quit\nSelect: ", meta.Name, meta.Version)
 		choice, readErr := reader.ReadString('\n')
 		if readErr != nil {
