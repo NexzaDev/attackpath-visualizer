@@ -16,7 +16,7 @@ The original product brief and acceptance criteria are preserved unchanged in [`
 
 ## Requirements
 
-- Go 1.23 or newer.
+- Go 1.25 or newer.
 - Native Fyne GUI build prerequisites. On Ubuntu, CI installs `bc`, `gcc`, `libgl1-mesa-dev`, `libwayland-dev`, `libx11-dev`, `libxkbcommon-dev`, `xorg-dev`, `xvfb`, and `language-pack-en`. These are build/test prerequisites only; the CLI-only build does not require the GUI stack.
 - No network access is required to run the application after it has been built. First-time Go module downloads and release packaging do need network access.
 

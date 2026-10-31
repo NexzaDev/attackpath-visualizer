@@ -22,7 +22,8 @@ func TestEntryForEachPlatform(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(path, test.path) || !strings.Contains(string(body), test.text) || !strings.Contains(string(body), "graph file.db") {
+			portablePath := strings.ReplaceAll(path, "\\", "/")
+			if !strings.Contains(portablePath, test.path) || !strings.Contains(string(body), test.text) || !strings.Contains(string(body), "graph file.db") {
 				t.Fatalf("path=%q body=%q", path, body)
 			}
 		})
