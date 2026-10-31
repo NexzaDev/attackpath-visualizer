@@ -30,7 +30,7 @@ jobs:
           install: mingw-w64-x86_64-gcc
           update: true
       - name: Resolve module checksums
-        run: go mod download
+        run: go mod download all
       - name: Verify formatting
         shell: bash
         run: |
@@ -74,6 +74,6 @@ jobs:
           go-version-file: go.mod
       - name: Install GUI build prerequisites from Fyne CI documentation
         run: sudo apt-get update && sudo apt-get install -y bc gcc libgl1-mesa-dev libwayland-dev libx11-dev libxkbcommon-dev xorg-dev xvfb language-pack-en
-      - run: go mod download
+      - run: go mod download all
       - name: Race-enabled tests
         run: go test -race ./... || { echo "::error title=Go race tests::Race-enabled tests failed; inspect this step's diagnostics"; exit 1; }

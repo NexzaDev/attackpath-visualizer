@@ -19,7 +19,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - run: go mod download
+      - run: go mod download all
       - name: Commit dependency lockfile
         run: |
           if [ -n "$(git status --porcelain -- go.sum)" ]; then
