@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/NexzaDev/attackpath-visualizer/internal/notifications"
@@ -22,8 +24,25 @@ type Notification struct {
 	Read      bool      `json:"read"`
 }
 
+func readOnlySQLiteURI(path string) string {
+	path = filepath.ToSlash(path)
+	uri := &url.URL{Scheme: "file"}
+	if runtime.GOOS == "windows" && strings.HasPrefix(path, "//") {
+		unc := strings.TrimPrefix(path, "//")
+		uri.Host, path, _ = strings.Cut(unc, "/")
+		path = "/" + path
+	} else if runtime.GOOS == "windows" && len(path) > 1 && path[1] == ':' {
+		path = "/" + path
+	}
+	uri.Path = path
+	query := uri.Query()
+	query.Set("mode", "ro")
+	uri.RawQuery = query.Encode()
+	return uri.String()
+}
+
 func OpenReadOnly(path string) (*Store, error) {
-	uri := (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String() + "?mode=ro"
+	uri := readOnlySQLiteURI(path)
 	db, err := sql.Open("sqlite", uri)
 	if err != nil {
 		return nil, fmt.Errorf("open read-only database: %w", err)
