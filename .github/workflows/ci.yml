@@ -33,6 +33,8 @@ jobs:
         run: go mod tidy -diff
       - name: Resolve module checksums
         run: go mod download all
+      - name: Verify downloaded modules
+        run: go mod verify
       - name: Verify formatting
         shell: bash
         run: |
