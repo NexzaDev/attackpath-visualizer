@@ -81,7 +81,7 @@ go build ./...
 go run ./cmd/render-screenshots -out artifacts/ui
 ```
 
-`make check` runs the local formatting, analysis, test, and build gate. `go build -tags nogui ./...` builds the server-friendly CLI/TUI variant; `go build ./...` includes the native GUI. The GitHub Actions workflow runs the platform matrix, uses Xvfb/software rendering for headless Linux UI checks, and uploads PNG screenshots as `attackpath-visualizer-ui-screenshots`. Screenshot artifacts are design evidence, not proof of desktop runtime behavior. Check the pull request for actual per-OS CI results before relying on a build.
+`make check` runs the local formatting, analysis, test, and build gate. `go build -tags nogui ./...` builds the server-friendly CLI/TUI variant; `go build ./...` includes the native GUI. The GitHub Actions workflow runs the platform matrix on Go 1.27.3, uses Xvfb/software rendering for headless Linux UI checks, and uploads PNG screenshots as `attackpath-visualizer-ui-screenshots`. The branch-push lockfile workflow runs `go mod tidy` and commits any `go.mod`/`go.sum` updates. CI also checks module metadata and verifies downloaded modules. Screenshot artifacts are design evidence, not proof of desktop runtime behavior. Check the pull request for actual per-OS CI results before relying on a build.
 
 ## Notifications
 
