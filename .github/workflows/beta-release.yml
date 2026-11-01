@@ -77,10 +77,39 @@ jobs:
       - name: Build GUI package and bundle required files
         shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
+          report_packaging_failure() {
+            status=$?
+            command=$BASH_COMMAND
+            line=${BASH_LINENO[0]:-unknown}
+            trap - ERR
+            printf 'Packaging failed (exit %s) at line %s: %s\n' "$status" "$line" "$command" >> "$GITHUB_STEP_SUMMARY"
+            annotation=$command
+            annotation=${annotation//'%'/'%25'}
+            annotation=${annotation//$'\r'/'%0D'}
+            annotation=${annotation//$'\n'/'%0A'}
+            printf '::error title=Packaging command failed::exit %s at line %s: %s\n' "$status" "$line" "$annotation"
+            exit "$status"
+          }
+          trap report_packaging_failure ERR
           test -s assets/icons/icon.png
           mkdir -p release-output
-          (cd cmd/attackpath-visualizer && go run fyne.io/tools/cmd/fyne@v1.7.4 package --target "${{ matrix.target }}" --release)
+          if ! (cd cmd/attackpath-visualizer && go run fyne.io/tools/cmd/fyne@v1.7.4 package --target "${{ matrix.target }}" --release) > fyne-package.log 2>&1; then
+            cat fyne-package.log
+            {
+              echo '## Fyne package failure'
+              echo '```text'
+              tail -n 100 fyne-package.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            diagnostics=$(tail -n 80 fyne-package.log)
+            diagnostics=${diagnostics//'%'/'%25'}
+            diagnostics=${diagnostics//$'\r'/'%0D'}
+            diagnostics=${diagnostics//$'\n'/'%0A'}
+            printf '::error title=Fyne package (%s)::%s\n' "${{ matrix.platform }}" "$diagnostics"
+            exit 1
+          fi
+          cat fyne-package.log
           case "${{ matrix.target }}" in
             windows)
               exe="cmd/attackpath-visualizer/AttackPath Visualizer.exe"
