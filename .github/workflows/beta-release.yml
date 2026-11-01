@@ -56,10 +56,23 @@ jobs:
           set -euo pipefail
           license_output=third-party-license-output
           test ! -e "$license_output"
-          go run github.com/google/go-licenses@v1.6.0 save ./cmd/attackpath-visualizer --save_path "$license_output"
+          if ! go run github.com/google/go-licenses@v1.6.0 save ./cmd/attackpath-visualizer --save_path "$license_output" > license-save.log 2>&1; then
+            while IFS= read -r line; do
+              line=${line//'%'/'%25'}
+              line=${line//$'\r'/'%0D'}
+              line=${line//$'\n'/'%0A'}
+              printf '::error title=go-licenses save::%s\n' "$line"
+            done < <(tail -n 30 license-save.log)
+            exit 1
+          fi
+          cat license-save.log
+          rm license-save.log
           mkdir -p assets/licenses
           cp LICENSE assets/licenses/AttackPath-Visualizer-MIT.txt
-          cp -R "$license_output"/. assets/licenses/
+          if ! cp -R "$license_output"/. assets/licenses/; then
+            echo '::error title=license bundle::Failed to copy generated license texts into assets/licenses.'
+            exit 1
+          fi
           cp THIRD_PARTY_NOTICES.md assets/docs/THIRD_PARTY_NOTICES.md
       - name: Build GUI package and bundle required files
         shell: bash
