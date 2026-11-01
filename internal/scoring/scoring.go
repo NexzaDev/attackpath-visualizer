@@ -7,10 +7,10 @@ import (
 )
 
 type Result struct {
-	ImpactTier           int   `json:"impact_tier"`
-	EdgeConfidences      []int `json:"edge_confidences"`
-	CompoundedConfidence int   `json:"compounded_confidence"`
-	Score                int   `json:"score"`
+	ImpactTier           int    `json:"impact_tier"`
+	EdgeConfidences      []int  `json:"edge_confidences"`
+	CompoundedConfidence int    `json:"compounded_confidence"`
+	Score                int    `json:"score"`
 	Explanation          string `json:"explanation"`
 }
 
