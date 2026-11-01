@@ -90,11 +90,11 @@ func TestValidateRejectsDanglingNodesAndEvidence(t *testing.T) {
 
 func TestValidatesIdentityMisconfigurationAndFindingReferences(t *testing.T) {
 	graph := Graph{
-		Assets:     []Asset{{ID: "db", Name: "Database", Kind: "database", Impact: 5}},
-		Identities: []Identity{{ID: "workload", Name: "Workload identity", Kind: "workload", Impact: 3}},
+		Assets:            []Asset{{ID: "db", Name: "Database", Kind: "database", Impact: 5}},
+		Identities:        []Identity{{ID: "workload", Name: "Workload identity", Kind: "workload", Impact: 3}},
 		Misconfigurations: []Misconfiguration{{ID: "misconfig", AssetID: "db", IdentityID: "workload", Title: "Overbroad access", Severity: 4, Description: "Synthetic access issue"}},
-		Findings: []Finding{{ID: "finding", AssetID: "db", IdentityID: "workload", MisconfigurationID: "misconfig", Title: "Read access observed", Severity: 4, Source: "fixture://permissions", Observed: "synthetic"}},
-		Edges: []Edge{{ID: "access", From: "workload", To: "db", Relation: "reads", Confidence: 90, Evidence: testEvidence("read access")}},
+		Findings:          []Finding{{ID: "finding", AssetID: "db", IdentityID: "workload", MisconfigurationID: "misconfig", Title: "Read access observed", Severity: 4, Source: "fixture://permissions", Observed: "synthetic"}},
+		Edges:             []Edge{{ID: "access", From: "workload", To: "db", Relation: "reads", Confidence: 90, Evidence: testEvidence("read access")}},
 	}
 	if err := graph.Validate(); err != nil {
 		t.Fatal(err)
