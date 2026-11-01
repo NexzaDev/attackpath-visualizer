@@ -38,8 +38,8 @@ func TestScoreFloorsAfterEachEdgeAndAcceptsZeroConfidence(t *testing.T) {
 
 func TestScoreRejectsInvalidInput(t *testing.T) {
 	for _, test := range []struct {
-		name         string
-		impact       int
+		name        string
+		impact      int
 		confidences []int
 	}{
 		{name: "impact too small", impact: 0, confidences: []int{100}},
