@@ -1078,8 +1078,18 @@ func (d *Dashboard) filteredNodes() []domain.Node {
 	all := d.graph.Nodes()
 	result := make([]domain.Node, 0, len(all))
 	for _, node := range all {
-		value := strings.ToLower(node.Name + " " + node.EntityType + " " + node.Kind + " " + node.ID + " " + node.Description)
-		if d.search == "" || strings.Contains(value, d.search) {
+		value := node.Name + " " + node.EntityType + " " + node.Kind + " " + node.ID + " " + node.Description
+		for _, item := range d.graph.Misconfigurations {
+			if item.AssetID == node.ID || item.IdentityID == node.ID {
+				value += fmt.Sprintf(" %s %s severity %d", item.Title, item.Description, item.Severity)
+			}
+		}
+		for _, item := range d.graph.Findings {
+			if item.AssetID == node.ID || item.IdentityID == node.ID {
+				value += fmt.Sprintf(" %s %s %s %s severity %d", item.Title, item.Source, item.Observed, item.MisconfigurationID, item.Severity)
+			}
+		}
+		if d.search == "" || strings.Contains(strings.ToLower(value), d.search) {
 			result = append(result, node)
 		}
 	}
@@ -1089,7 +1099,7 @@ func (d *Dashboard) filteredNodes() []domain.Node {
 func (d *Dashboard) filteredEdges() []domain.Edge {
 	result := make([]domain.Edge, 0, len(d.graph.Edges))
 	for _, edge := range d.graph.Edges {
-		value := strings.ToLower(edge.ID + " " + edge.From + " " + edge.To + " " + edge.Relation + " " + edge.Evidence.Source + " " + edge.Evidence.Finding)
+		value := strings.ToLower(edge.ID + " " + edge.From + " " + edge.To + " " + edge.Relation + " " + edge.Evidence.Source + " " + edge.Evidence.Finding + " " + edge.Evidence.Observed)
 		if d.search == "" || strings.Contains(value, d.search) {
 			result = append(result, edge)
 		}

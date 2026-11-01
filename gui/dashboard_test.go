@@ -39,6 +39,30 @@ func TestEveryNavigationCategoryBuildsARealScreen(t *testing.T) {
 	}
 }
 
+func TestGlobalSearchFindsNodesThroughLinkedFindings(t *testing.T) {
+	application := test.NewApp()
+	store, err := repository.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err = (service.Service{Store: store}).LoadDemo(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dashboard, err := NewDashboard(application, nil, store, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dashboard.search = "stale credential reference"
+	found := make(map[string]bool)
+	for _, node := range dashboard.filteredNodes() {
+		found[node.ID] = true
+	}
+	if !found["secret-store"] || !found["deploy-bot"] {
+		t.Fatalf("global search did not match nodes through their linked finding: %#v", found)
+	}
+}
+
 func TestAboutLinksStayWithinConfiguredRepository(t *testing.T) {
 	allowed := []string{
 		"https://github.com/NexzaDev/attackpath-visualizer",
