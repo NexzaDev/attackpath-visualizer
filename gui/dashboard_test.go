@@ -68,6 +68,7 @@ func TestAboutLinksStayWithinConfiguredRepository(t *testing.T) {
 		"https://github.com/NexzaDev/attackpath-visualizer",
 		"https://github.com/NexzaDev/attackpath-visualizer/issues/new",
 		"https://github.com/NexzaDev/attackpath-visualizer/blob/main/docs/USAGE.md",
+		"https://github.com/NexzaDev/attackpath-visualizer/security/advisories/new",
 	}
 	for _, target := range allowed {
 		if !AllowedRepositoryURL(target) {

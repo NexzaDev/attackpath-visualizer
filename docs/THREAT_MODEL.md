@@ -15,3 +15,7 @@ Imports are capped at 8 MiB, decoded into typed records, validated for identifie
 ## Residual risks and assumptions
 
 Inventory text can contain false or sensitive information and remains the operator's responsibility. Local users/processes with access to the account can read or change the database. Platform permissions depend on the OS configuration directory. The graph score is a prioritization heuristic, not a calibrated probability or proof of reachability. Packaging/signing and real-desktop behavior are not yet verified.
+
+## Reporting a vulnerability
+
+Use the [GitHub private vulnerability advisory form](https://github.com/NexzaDev/attackpath-visualizer/security/advisories/new) first; do not disclose suspected vulnerabilities publicly. If you cannot use the GitHub form, send the report to **SuperMcDuck@proton.me**. Supported versions, report contents, response targets, scope, and disclosure coordination are defined in [`SECURITY.md`](../SECURITY.md).

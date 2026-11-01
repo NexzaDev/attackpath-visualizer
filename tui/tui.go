@@ -126,7 +126,7 @@ func Run(requestedDB string) error {
 				fmt.Println("Saved launcher mode cleared.")
 			}
 		case "11":
-			fmt.Printf("%s\n%s\nVersion: %s\nLicense: MIT\nSource: %s\n", meta.Name, meta.Purpose, meta.Version, meta.Repository)
+			fmt.Printf("%s\n%s\nVersion: %s\nLicense: MIT\nSource: %s\nSecurity vulnerability reports: GitHub private advisory form (preferred): %s\nBackup channel: email. If you cannot use the GitHub form, send the report to SuperMcDuck@proton.me.\n", meta.Name, meta.Purpose, meta.Version, meta.Repository, meta.SecurityAdvisory)
 		case "12":
 			fmt.Printf("OS/architecture: %s/%s\nRuntime: %s\nConfiguration: local-only; no credentials configured\n", runtime.GOOS, runtime.GOARCH, runtime.Version())
 		case "13":

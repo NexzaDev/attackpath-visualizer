@@ -101,6 +101,10 @@ Maintainers run the `Release packages` workflow manually from the default branch
 - Use only systems and inventories you are authorized to assess. A relationship graph can be incomplete or stale and should be reviewed by a human.
 - See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md), [`docs/USAGE.md`](docs/USAGE.md), and [`SECURITY.md`](SECURITY.md) for security boundaries, detailed workflows, and reporting guidance.
 
+### Reporting a vulnerability
+
+Use the [GitHub private vulnerability advisory form](https://github.com/NexzaDev/attackpath-visualizer/security/advisories/new) first; please do not report vulnerabilities in public issues. If you cannot use the GitHub form, send the report to **SuperMcDuck@proton.me**. See [`SECURITY.md`](SECURITY.md) for supported versions, scope, response targets, and disclosure guidance.
+
 ## License
 
 The application is MIT-licensed; third-party and font license texts are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), [`docs/LICENSES.md`](docs/LICENSES.md), and the `licenses/` directory. Release builds gather the platform-specific transitive Go module licenses. See [`LICENSE`](LICENSE).

@@ -674,7 +674,8 @@ func (d *Dashboard) aboutScreen() fyne.CanvasObject {
 			}
 		}, d.window)
 	})
-	overview := container.NewVBox(container.NewHBox(logo, container.NewVBox(widget.NewLabelWithStyle(meta.Name, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), widget.NewLabel("Version "+meta.Version), widget.NewLabel(meta.Purpose))), widget.NewLabel(meta.License+" License · "+meta.Copyright), widget.NewLabel("Build: "+runtime.GOOS+"/"+runtime.GOARCH+" · "+runtime.Version()), widget.NewLabel("The application and third-party license texts are bundled for offline review."), widget.NewButton("Source Code", func() { d.confirmOpenURL(meta.Repository) }), widget.NewButton("Found a bug? Please report it on GitHub.", func() { d.previewBugReport() }))
+	securityContact := widget.NewCard("Security vulnerability reporting", "Preferred: submit a private GitHub advisory. Backup: if you cannot use the GitHub form, email SuperMcDuck@proton.me.", widget.NewButton("Report a vulnerability privately", func() { d.confirmOpenURL(meta.SecurityAdvisory) }))
+	overview := container.NewVBox(container.NewHBox(logo, container.NewVBox(widget.NewLabelWithStyle(meta.Name, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), widget.NewLabel("Version "+meta.Version), widget.NewLabel(meta.Purpose))), widget.NewLabel(meta.License+" License · "+meta.Copyright), widget.NewLabel("Build: "+runtime.GOOS+"/"+runtime.GOARCH+" · "+runtime.Version()), widget.NewLabel("The application and third-party license texts are bundled for offline review."), widget.NewButton("Source Code", func() { d.confirmOpenURL(meta.Repository) }), widget.NewButton("Found a bug? Please report it on GitHub.", func() { d.previewBugReport() }), securityContact)
 	usage, _ := assets.Files.ReadFile("docs/USAGE.md")
 	usageSearch := widget.NewEntry()
 	usageSearch.SetPlaceHolder("Find in the offline usage guide")

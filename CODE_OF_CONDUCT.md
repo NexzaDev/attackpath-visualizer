@@ -10,6 +10,6 @@ Examples of positive behavior include empathy, constructive feedback, and respec
 Maintainers are responsible for clarifying standards and taking fair corrective action. They may remove, edit, or reject contributions that violate this code and may temporarily or permanently exclude contributors for behavior they consider inappropriate.
 
 ## Scope and reporting
-This code applies in project spaces and when someone represents the project. Report unacceptable behavior privately to a repository maintainer through GitHub. Maintainers will review reports respectfully and confidentially.
+This code applies in project spaces and when someone represents the project. Report unacceptable behavior privately to a repository maintainer through GitHub. Maintainers will review reports respectfully and confidentially. For reporting a security vulnerability, follow the preferred private-advisory and backup-channel instructions in [`SECURITY.md`](SECURITY.md).
 
 This text is adapted from Contributor Covenant v2.1, licensed CC BY 4.0.
