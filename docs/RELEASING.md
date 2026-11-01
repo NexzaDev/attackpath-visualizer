@@ -1,6 +1,6 @@
 # Release procedure
 
-The repository provides two separate release paths. **Beta release** is triggered by pushing a new `v*` tag and publishes a public pre-release. **Release packages** is a manual workflow that attaches packages to a draft pre-release and never publishes it automatically. Both use native operating-system runners and pin `fyne.io/tools/cmd/fyne` to `v1.26.1`.
+The repository provides two separate release paths. **Beta release** is triggered by pushing a new `v*` tag and publishes a public pre-release. **Release packages** is a manual workflow that attaches packages to a draft pre-release and never publishes it automatically. Both use native operating-system runners and pin `fyne.io/tools/cmd/fyne` to `v1.7.4`, which includes newer `golang.org/x/tools` support required by the configured Go toolchain.
 
 The Ubuntu GUI prerequisite list comes from the Fyne v2.6.3 upstream `.github/workflows/platform_tests.yml`: `bc`, `gcc`, `libgl1-mesa-dev`, `libwayland-dev`, `libx11-dev`, `libxkbcommon-dev`, `xorg-dev`, `xvfb`, and `language-pack-en`.
 

@@ -74,7 +74,7 @@ jobs:
           else
             go build -tags nogui -o "release-output/attackpath-visualizer-cli-${{ matrix.platform }}" ./cmd/attackpath-visualizer
           fi
-          (cd cmd/attackpath-visualizer && go run fyne.io/tools/cmd/fyne@v1.26.1 package --target "${{ matrix.target }}" --release)
+          (cd cmd/attackpath-visualizer && go run fyne.io/tools/cmd/fyne@v1.7.4 package --target "${{ matrix.target }}" --release)
           mkdir -p release-output/cli-bundle/licenses release-output/cli-bundle/docs
           cli_name="attackpath-visualizer-cli-${{ matrix.platform }}"
           if [ "${{ matrix.target }}" = "windows" ]; then cli_name="${cli_name}.exe"; fi

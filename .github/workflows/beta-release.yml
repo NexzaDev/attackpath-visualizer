@@ -80,7 +80,7 @@ jobs:
           set -euo pipefail
           test -s assets/icons/icon.png
           mkdir -p release-output
-          (cd cmd/attackpath-visualizer && go run fyne.io/tools/cmd/fyne@v1.26.1 package --target "${{ matrix.target }}" --release)
+          (cd cmd/attackpath-visualizer && go run fyne.io/tools/cmd/fyne@v1.7.4 package --target "${{ matrix.target }}" --release)
           case "${{ matrix.target }}" in
             windows)
               exe="cmd/attackpath-visualizer/AttackPath Visualizer.exe"
