@@ -61,7 +61,7 @@ func TestImportRecordsNewHighImpactPaths(t *testing.T) {
 	}
 	defer store.Close()
 	app := Service{Store: store}
-	graph := `{"assets":[{"id":"entry","name":"Entry","kind":"service","impact":1},{"id":"data","name":"Sensitive dataset","kind":"database","impact":5}],"edges":[{"id":"relationship","from":"entry","to":"data","relation":"has access","confidence":95}]}`
+	graph := `{"assets":[{"id":"entry","name":"Entry","kind":"service","impact":1},{"id":"data","name":"Sensitive dataset","kind":"database","impact":5}],"edges":[{"id":"relationship","from":"entry","to":"data","relation":"has access","confidence":95,"evidence":{"source":"fixture://test","finding":"Access path exists","observed":"synthetic"}}]}`
 	if err = app.Import(context.Background(), strings.NewReader(graph), "synthetic test"); err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestImportNotifiesWhenExistingPathBecomesCritical(t *testing.T) {
 	}
 	defer store.Close()
 	app := Service{Store: store}
-	lowRisk := `{"assets":[{"id":"entry","name":"Entry","kind":"service","impact":1},{"id":"data","name":"Sensitive dataset","kind":"database","impact":5}],"edges":[{"id":"relationship","from":"entry","to":"data","relation":"has access","confidence":50}]}`
+	lowRisk := `{"assets":[{"id":"entry","name":"Entry","kind":"service","impact":1},{"id":"data","name":"Sensitive dataset","kind":"database","impact":5}],"edges":[{"id":"relationship","from":"entry","to":"data","relation":"has access","confidence":50,"evidence":{"source":"fixture://test","finding":"Access path exists","observed":"synthetic"}}]}`
 	if err = app.Import(context.Background(), strings.NewReader(lowRisk), "low risk"); err != nil {
 		t.Fatal(err)
 	}
