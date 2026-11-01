@@ -89,6 +89,7 @@ jobs:
             cp README.md LICENSE THIRD_PARTY_NOTICES.md release-output/windows-bundle/
             cp docs/USAGE.md docs/LICENSES.md release-output/windows-bundle/docs/
             cp -R assets/licenses/. release-output/windows-bundle/licenses/
+            pwsh -NoProfile -Command '$ErrorActionPreference = "Stop"; Add-Type -AssemblyName System.Drawing; $icon = [System.Drawing.Icon]::ExtractAssociatedIcon("release-output/windows-bundle/AttackPath Visualizer.exe"); if ($null -eq $icon) { throw "No executable icon resource was found" }; $stream = [System.IO.File]::Create("release-output/windows-icon-check.ico"); try { $icon.Save($stream) } finally { $stream.Dispose() }; if ((Get-Item "release-output/windows-icon-check.ico").Length -lt 100) { throw "Extracted application icon is unexpectedly small" }'
             powershell -NoProfile -Command "Compress-Archive -Path 'release-output/cli-bundle/*' -DestinationPath 'release-output/attackpath-visualizer-cli-windows-x64.zip' -Force"
             powershell -NoProfile -Command "Compress-Archive -Path 'release-output/windows-bundle/*' -DestinationPath 'release-output/attackpath-visualizer-windows-x64.zip' -Force"
           elif [ "${{ matrix.target }}" = "darwin" ]; then
