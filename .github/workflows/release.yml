@@ -46,7 +46,7 @@ jobs:
         run: |
           license_output=third-party-license-output
           test ! -e "$license_output"
-          if ! go run github.com/google/go-licenses@v1.6.0 --ignore=modernc.org/mathutil save ./cmd/attackpath-visualizer --save_path "$license_output" > license-save.log 2>&1; then
+          if ! go run github.com/google/go-licenses@v1.6.0 save --ignore=modernc.org/mathutil --save_path "$license_output" ./cmd/attackpath-visualizer > license-save.log 2>&1; then
             diagnostics=$(tail -n 80 license-save.log)
             diagnostics=${diagnostics//'%'/'%25'}
             diagnostics=${diagnostics//$'\r'/'%0D'}
