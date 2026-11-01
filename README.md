@@ -12,7 +12,7 @@ The original product brief and acceptance criteria are preserved unchanged in [`
 - Overview, graph workspace, paths, assets, evidence, remediation, imports, reports, notifications, settings, About, usage guide, and sanitized diagnostics views.
 - In-app event notifications and optional per-user OS notifications. The background notifier is off by default, uses a read-only database connection and a private local delivery ledger, and makes no network calls.
 - Custom application icon, offline Noto Sans font assets, light/dark themes, keyboard shortcuts, and accessible text alternatives.
-- CI coverage for Linux, macOS, and Windows, software-rendered dashboard screenshots, and a manually triggered draft-release workflow.
+- CI coverage for Linux, macOS, and Windows, software-rendered dashboard screenshots, a tag-triggered public beta workflow, and a manually triggered draft-release workflow.
 
 ## Requirements
 
@@ -83,7 +83,7 @@ go build ./...
 go run ./cmd/render-screenshots -out artifacts/ui
 ```
 
-`make check` runs the local formatting, analysis, test, and build gate. `go build -tags nogui ./...` builds the server-friendly CLI/TUI variant; `go build ./...` includes the native GUI. The GitHub Actions workflow runs the platform matrix on Go 1.27.3, uses Xvfb/software rendering for headless Linux UI checks, and uploads PNG screenshots as `attackpath-visualizer-ui-screenshots`. The branch-push lockfile workflow runs `go mod tidy` and commits any `go.mod`/`go.sum` updates. CI also checks module metadata and verifies downloaded modules. Screenshot artifacts are design evidence, not proof of desktop runtime behavior. Check the pull request for actual per-OS CI results before relying on a build.
+`make check` runs the local formatting, analysis, test, and build gate. `go build -tags nogui ./...` builds the server-friendly CLI/TUI variant; `go build ./...` includes the native GUI. The GitHub Actions workflow runs the platform matrix on Go 1.27.3, uses Xvfb/software rendering for headless Linux UI checks, and uploads PNG screenshots as `attackpath-visualizer-ui-screenshots`. CI checks module metadata and verifies downloaded modules. Screenshot artifacts are design evidence, not proof of desktop runtime behavior. Check the pull request for actual per-OS CI results before relying on a build.
 
 ## Notifications
 
@@ -91,7 +91,7 @@ Notifications are opt-in. In Settings, explicitly enable the background notifier
 
 ## Release packages
 
-Maintainers run the `Release packages` workflow manually from the default branch in GitHub Actions. It packages the GUI on native Windows, macOS ARM64, and Linux x64 runners, creates the CLI-only package, includes offline documentation and dependency license material, calculates `SHA256SUMS`, and attaches the results to a **draft pre-release**. The workflow does not publish a release automatically. See [`docs/RELEASING.md`](docs/RELEASING.md) for exact phone/desktop GitHub steps and unsigned-binary warnings. No signing or notarization is claimed.
+The tag-triggered `Beta release` workflow runs tests and packages the GUI on native Linux x64, macOS ARM64, and Windows x64 runners, includes the custom icon and license materials, creates `SHA256SUMS`, and publishes a public **pre-release**. The separate `Release packages` workflow remains a manual draft-only path and never publishes automatically. See [`docs/RELEASING.md`](docs/RELEASING.md) for tagging, phone/desktop GitHub steps, package contents, checksum verification, and unsigned-binary warnings. No signing or notarization is claimed.
 
 ## Data, security, and recovery
 

@@ -1,35 +1,47 @@
 # Release procedure
 
-The repository's **Release packages** GitHub Actions workflow is manual-only. It must be present on the default branch before it can be dispatched. The workflow builds on native operating-system runners and uses `fyne.io/tools/cmd/fyne` pinned to `v1.26.1`; it never publishes a release automatically.
+The repository provides two separate release paths. **Beta release** is triggered by pushing a new `v*` tag and publishes a public pre-release. **Release packages** is a manual workflow that attaches packages to a draft pre-release and never publishes it automatically. Both use native operating-system runners and pin `fyne.io/tools/cmd/fyne` to `v1.26.1`.
 
-The Ubuntu GUI prerequisite list was recorded from the Fyne v2.6.3 upstream `.github/workflows/platform_tests.yml`: `bc`, `gcc`, `libgl1-mesa-dev`, `libwayland-dev`, `libx11-dev`, `libxkbcommon-dev`, `xorg-dev`, `xvfb`, and `language-pack-en`. The CI and release workflows install the same list.
+The Ubuntu GUI prerequisite list comes from the Fyne v2.6.3 upstream `.github/workflows/platform_tests.yml`: `bc`, `gcc`, `libgl1-mesa-dev`, `libwayland-dev`, `libx11-dev`, `libxkbcommon-dev`, `xorg-dev`, `xvfb`, and `language-pack-en`.
 
-For a local native package test (the workflow remains the source of downloadable release assets), install the exact packager and run it from `cmd/attackpath-visualizer` on each supported OS:
+## Public dev-beta release
 
-```sh
-go run fyne.io/tools/cmd/fyne@v1.26.1 package --target linux --release
-go run fyne.io/tools/cmd/fyne@v1.26.1 package --target darwin --release
-go run fyne.io/tools/cmd/fyne@v1.26.1 package --target windows --release
-```
+Only tag a commit after CI has passed on Linux, macOS, and Windows and the Linux race detector is green. The tag workflow independently runs `go test ./...` and `go vet ./...` on each native runner before packaging. It verifies the app icon and package contents, uploads matrix artifacts, creates `SHA256SUMS`, then publishes a public GitHub pre-release.
 
-Run only the command matching the native runner/host. The macOS package is ARM64 on the configured Apple Silicon runner; the Windows and Linux outputs are x64 on their configured runners. These commands download Go modules and the pinned packaging tool.
+For the initial release, use tag `v0.1.0-dev` on the verified PR head. Never force-update or reuse a tag. The publishing job checks that the tag resolves to the workflow commit and fails if a release with that tag already exists. If any package job fails, follow the project release instructions: remove a failed release and tag before pushing a corrected tag; do not bypass a failing check.
 
-## Run from a phone or desktop
+Expected public assets:
 
-1. Open `NexzaDev/attackpath-visualizer` in the GitHub website or mobile browser and select **Actions**.
-2. Choose **Release packages** in the workflow list. If the workflow is absent, it has not been merged to the default branch yet.
-3. Select **Run workflow**, leave the branch set to `main`, and confirm. The Windows, macOS ARM64, and Linux x64 jobs build in parallel.
-4. Wait for all three package jobs and the **attach packages to a draft pre-release** job to finish green. A failed or cancelled matrix job means its platform output was not produced; do not describe the release as complete.
-5. Open **Releases** and review the draft **AttackPath Visualizer v0.1.0-dev (dev beta)**. It must contain `attackpath-visualizer-windows-x64.exe`, `attackpath-visualizer-macos-arm64.tar.gz`, `attackpath-visualizer-linux-x64.tar.gz`, `attackpath-visualizer-cli-windows-x64.zip`, `attackpath-visualizer-cli-macos-arm64.tar.gz`, `attackpath-visualizer-cli-linux-x64.tar.gz`, and `SHA256SUMS`.
-6. Download the draft assets and verify the checksum file before publication. Review the release notes and package contents; the GUI packages include the custom icon, README, offline Usage guide, application/third-party license files, and platform integration files.
-7. Publish the draft only after reviewing green workflow results, package names and checksums, and the source commit. The workflow never publishes it automatically.
+- `attackpath-visualizer-linux-x64.tar.gz`
+- `attackpath-visualizer-macos-arm64.tar.gz`
+- `attackpath-visualizer-windows-x64.zip` (contains the GUI executable and required license files)
+- `SHA256SUMS` (checksums for all three packages)
 
-The build also uploads per-platform review artifacts named `attackpath-visualizer-release-windows-x64`, `attackpath-visualizer-release-macos-arm64`, and `attackpath-visualizer-release-linux-x64`. These are useful before a draft exists and are not a substitute for opening the application on the target OS.
+Each GUI package includes the app and custom icon plus `LICENSE`, `THIRD_PARTY_NOTICES.md`, `licenses/`, README, and offline Usage documentation. The package job validates the icon resource and required license files before upload. The Windows archive is used so the executable and licenses travel together.
+
+After publication, inspect the GitHub Release page and confirm the **Pre-release** badge, title `AttackPath Visualizer v0.1.0-dev (dev beta)`, all four asset names, plausible non-zero sizes, and checksum lines. Download each package on a supported machine, run `sha256sum -c SHA256SUMS`, inspect its contents, and record actual test results. Do not claim a package was opened on an OS unless it was actually run there.
+
+## Manual draft release from a phone or desktop
+
+The **Release packages** workflow is manual-only and must be present on the default branch before GitHub makes it dispatchable. Use this path to prepare a reviewable draft without publishing it:
+
+1. Open `NexzaDev/attackpath-visualizer` in GitHub or its mobile browser and select **Actions**.
+2. Choose **Release packages**. If it is absent, it is not present/enabled on the default branch.
+3. Select **Run workflow**, choose `main`, and confirm.
+4. Wait for the Windows x64, macOS ARM64, Linux x64, and draft-attachment jobs to finish. Any failed/cancelled job means its package was not produced.
+5. Review the draft **AttackPath Visualizer v0.1.0-dev (dev beta)**, expected package names, `SHA256SUMS`, and release notes. Check the package contents and checksums before manually publishing.
+6. The workflow never publishes the draft automatically. Publish only after review and maintainer approval.
 
 ## Unsigned build warnings
 
-Packages are unsigned and macOS builds are not notarized. Windows SmartScreen may warn; for a verified build, use **More info → Run anyway** only after checking the checksum. macOS Gatekeeper may block the app; after checking the checksum, Control-click and choose **Open** the first time. On Linux, extract the archive and run `chmod +x <binary>` if necessary. Do not bypass platform protections for unverified files. No signing key or notarization credentials are used.
+Packages are unsigned and macOS builds are not notarized. Verify checksums before opening downloaded files.
 
-## Platform and verification limits
+- **macOS:** Gatekeeper may warn. Right-click the app and choose **Open** the first time.
+- **Windows:** SmartScreen may warn. Choose **More info → Run anyway** only if you trust the package and verified its checksum.
+- **Linux:** Extract the archive and run `chmod +x <binary>` if necessary.
 
-A successful runner job proves that its build and packaging commands completed on that runner. It does not prove that the package was installed or opened on a physical desktop. Record the actual workflow URL, commit, produced assets, checksum result, and any job that failed to start in release notes before publication. Never claim that a package was built or tested unless its workflow result exists. macOS x64 is not included until a supported Intel runner is available.
+No signing key or notarization credentials are used.
+
+## Verification limits
+
+A green runner proves the commands completed on that runner; it does not prove installation or runtime behavior on a physical desktop. Record the actual workflow URL, commit, assets, sizes, checksums, and any failed-to-start jobs. macOS x64 is not included until a supported Intel runner is available.
