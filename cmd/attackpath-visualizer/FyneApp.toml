@@ -1,6 +1,8 @@
+Website = "https://github.com/NexzaDev/attackpath-visualizer"
+
+[Details]
 Name = "AttackPath Visualizer"
 ID = "dev.nexza.attackpathvisualizer"
 Version = "0.1.0"
 Build = 1
-Website = "https://github.com/NexzaDev/attackpath-visualizer"
 Icon = "../../assets/icons/icon.png"
