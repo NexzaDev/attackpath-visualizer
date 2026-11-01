@@ -42,14 +42,14 @@ type Misconfiguration struct {
 }
 
 type Finding struct {
-	ID                  string `json:"id"`
-	AssetID             string `json:"asset_id"`
-	IdentityID          string `json:"identity_id,omitempty"`
-	MisconfigurationID  string `json:"misconfiguration_id,omitempty"`
-	Title               string `json:"title"`
-	Severity            int    `json:"severity"`
-	Source              string `json:"source"`
-	Observed            string `json:"observed"`
+	ID                 string `json:"id"`
+	AssetID            string `json:"asset_id"`
+	IdentityID         string `json:"identity_id,omitempty"`
+	MisconfigurationID string `json:"misconfiguration_id,omitempty"`
+	Title              string `json:"title"`
+	Severity           int    `json:"severity"`
+	Source             string `json:"source"`
+	Observed           string `json:"observed"`
 }
 
 type Evidence struct {
@@ -92,14 +92,14 @@ type ScoreBreakdown struct {
 }
 
 type Path struct {
-	Nodes       []Node          `json:"nodes"`
-	Assets      []Asset         `json:"assets,omitempty"`
-	Edges       []Edge          `json:"edges"`
-	Impact      int             `json:"impact"`
-	Confidence  int             `json:"confidence"`
-	Score       int             `json:"score"`
-	Components  ScoreBreakdown  `json:"components"`
-	Explanation string          `json:"explanation"`
+	Nodes       []Node         `json:"nodes"`
+	Assets      []Asset        `json:"assets,omitempty"`
+	Edges       []Edge         `json:"edges"`
+	Impact      int            `json:"impact"`
+	Confidence  int            `json:"confidence"`
+	Score       int            `json:"score"`
+	Components  ScoreBreakdown `json:"components"`
+	Explanation string         `json:"explanation"`
 }
 
 type PathResult struct {
