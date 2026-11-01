@@ -1,6 +1,6 @@
 # Third-party notices
 
-This application bundles the following direct dependencies and assets. Transitive Go modules are listed by CI and their license texts are included in each release package using `go-licenses save`.
+This application bundles the following direct dependencies and assets. License texts for transitive Go modules are included in each release package using `go-licenses save`.
 
 | Component | Version / origin | License |
 |---|---|---|
