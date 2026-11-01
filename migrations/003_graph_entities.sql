@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS identities (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, impact INTEGER NOT NULL CHECK(impact BETWEEN 1 AND 5), description TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS graph_nodes (id TEXT PRIMARY KEY, entity_type TEXT NOT NULL CHECK(entity_type IN ('asset','identity')), name TEXT NOT NULL, kind TEXT NOT NULL, impact INTEGER NOT NULL CHECK(impact BETWEEN 1 AND 5), description TEXT NOT NULL);
+INSERT OR IGNORE INTO graph_nodes(id,entity_type,name,kind,impact,description) SELECT id,'asset',name,kind,impact,description FROM assets;
+ALTER TABLE edges RENAME TO edges_legacy;
+CREATE TABLE edges (id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES graph_nodes(id), target_id TEXT NOT NULL REFERENCES graph_nodes(id), relation TEXT NOT NULL, confidence INTEGER NOT NULL CHECK(confidence BETWEEN 0 AND 100), evidence_json TEXT NOT NULL);
+INSERT INTO edges(id,source_id,target_id,relation,confidence,evidence_json) SELECT id,source_id,target_id,relation,confidence,CASE WHEN json_valid(evidence_json)=0 THEN '{"source":"legacy://no-recorded-evidence","finding":"Earlier database version did not capture edge evidence","observed":"migration-003"}' WHEN COALESCE(json_extract(evidence_json,'$.source'),'')='' OR COALESCE(json_extract(evidence_json,'$.finding'),'')='' OR COALESCE(json_extract(evidence_json,'$.observed'),'')='' THEN '{"source":"legacy://no-recorded-evidence","finding":"Earlier database version did not capture edge evidence","observed":"migration-003"}' ELSE evidence_json END FROM edges_legacy;
+DROP TABLE edges_legacy;
+CREATE INDEX edges_source_idx ON edges(source_id);
+CREATE INDEX edges_target_idx ON edges(target_id);
+CREATE TABLE misconfigurations (id TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id), identity_id TEXT REFERENCES identities(id), title TEXT NOT NULL, severity INTEGER NOT NULL CHECK(severity BETWEEN 1 AND 5), description TEXT NOT NULL);
+CREATE TABLE findings (id TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id), identity_id TEXT REFERENCES identities(id), misconfiguration_id TEXT REFERENCES misconfigurations(id), title TEXT NOT NULL, severity INTEGER NOT NULL CHECK(severity BETWEEN 1 AND 5), source TEXT NOT NULL, observed TEXT NOT NULL);

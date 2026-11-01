@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "assets": [
+    {"id":"internet-edge","name":"Synthetic public edge","kind":"network-boundary","impact":2,"description":"Fictional ingress boundary used only by the offline demo"},
+    {"id":"api-gateway","name":"Customer API gateway","kind":"service","impact":3,"description":"Synthetic internet-facing application entry point"},
+    {"id":"workload-cluster","name":"Application workload cluster","kind":"compute","impact":3,"description":"Fictional service runtime with a deployment identity"},
+    {"id":"build-runner","name":"Release build runner","kind":"compute","impact":3,"description":"Synthetic build worker that publishes application artifacts"},
+    {"id":"artifact-store","name":"Release artifact store","kind":"storage","impact":4,"description":"Fictional package repository containing deployment artifacts"},
+    {"id":"secret-store","name":"Application secret store","kind":"vault","impact":4,"description":"Synthetic secret service with a stale credential finding"},
+    {"id":"customer-db","name":"Customer records database","kind":"database","impact":5,"description":"Fictional high-impact data store; no real customer data is present"},
+    {"id":"backup-bucket","name":"Encrypted backup bucket","kind":"storage","impact":5,"description":"Synthetic backup destination with an advisory access finding"},
+    {"id":"monitoring","name":"Operations monitoring service","kind":"service","impact":2,"description":"Fictional monitoring reader used as a low-impact comparison path"}
+  ],
+  "identities": [
+    {"id":"deploy-bot","name":"Deployment automation identity","kind":"workload","impact":4,"description":"Synthetic principal with release and configuration permissions"},
+    {"id":"analytics-reader","name":"Analytics reader identity","kind":"service-account","impact":4,"description":"Fictional application identity with read access to sensitive data"},
+    {"id":"backup-service","name":"Backup service identity","kind":"service-account","impact":3,"description":"Synthetic principal that writes encrypted backups"},
+    {"id":"external-partner","name":"External partner identity","kind":"federated","impact":2,"description":"Fictional federated principal used to illustrate a lower-confidence relationship"}
+  ],
+  "misconfigurations": [
+    {"id":"misconfig-public-api","asset_id":"api-gateway","title":"Public ingress requires review","severity":3,"description":"Synthetic demo advisory; validate intended exposure and authentication policy."},
+    {"id":"misconfig-deploy-scope","asset_id":"build-runner","identity_id":"deploy-bot","title":"Deployment permissions are broader than the demo baseline","severity":4,"description":"Synthetic demo advisory; review the minimum publish and deploy permissions."},
+    {"id":"misconfig-backup-policy","asset_id":"backup-bucket","identity_id":"backup-service","title":"Backup access policy needs periodic review","severity":4,"description":"Synthetic demo advisory; verify encryption and principal scoping."},
+    {"id":"misconfig-stale-secret","asset_id":"secret-store","identity_id":"deploy-bot","title":"Stale credential reference","severity":3,"description":"Synthetic demo advisory; rotate or remove unused credential references."}
+  ],
+  "findings": [
+    {"id":"finding-ingress","asset_id":"api-gateway","title":"Public route observed in fixture","severity":3,"source":"demo://network-inventory","observed":"2026-10-15T09:00:00Z"},
+    {"id":"finding-publish","asset_id":"artifact-store","identity_id":"deploy-bot","misconfiguration_id":"misconfig-deploy-scope","title":"Publish permission present","severity":4,"source":"demo://permission-review","observed":"2026-10-15T09:05:00Z"},
+    {"id":"finding-secret","asset_id":"secret-store","identity_id":"deploy-bot","misconfiguration_id":"misconfig-stale-secret","title":"Stale credential reference detected","severity":3,"source":"demo://configuration-audit","observed":"2026-10-15T09:10:00Z"},
+    {"id":"finding-data-read","asset_id":"customer-db","identity_id":"analytics-reader","title":"Read permission present in synthetic policy","severity":5,"source":"demo://data-access-review","observed":"2026-10-15T09:15:00Z"},
+    {"id":"finding-backup","asset_id":"backup-bucket","identity_id":"backup-service","misconfiguration_id":"misconfig-backup-policy","title":"Backup write permission present","severity":4,"source":"demo://storage-review","observed":"2026-10-15T09:20:00Z"}
+  ],
+  "edges": [
+    {"id":"edge-internet-api","from":"internet-edge","to":"api-gateway","relation":"routes requests to","confidence":98,"evidence":{"source":"demo://network-inventory","finding":"Fictional ingress route connects to the API gateway","observed":"2026-10-15T09:00:00Z"}},
+    {"id":"edge-api-workload","from":"api-gateway","to":"workload-cluster","relation":"forwards authenticated workload traffic to","confidence":91,"evidence":{"source":"demo://service-map","finding":"Synthetic service map records the gateway-to-workload dependency","observed":"2026-10-15T09:02:00Z"}},
+    {"id":"edge-workload-deploy","from":"workload-cluster","to":"deploy-bot","relation":"uses workload identity","confidence":88,"evidence":{"source":"demo://identity-inventory","finding":"Fictional runtime is associated with deployment identity","observed":"2026-10-15T09:04:00Z"}},
+    {"id":"edge-deploy-runner","from":"deploy-bot","to":"build-runner","relation":"can start release jobs on","confidence":93,"evidence":{"source":"demo://permission-review","finding":"Synthetic policy grants release-job access","observed":"2026-10-15T09:05:00Z"}},
+    {"id":"edge-runner-artifact","from":"build-runner","to":"artifact-store","relation":"publishes packages to","confidence":94,"evidence":{"source":"demo://build-inventory","finding":"Fictional build runner publishes to the artifact store","observed":"2026-10-15T09:07:00Z"}},
+    {"id":"edge-deploy-secrets","from":"deploy-bot","to":"secret-store","relation":"can read configuration from","confidence":78,"evidence":{"source":"demo://permission-review","finding":"Synthetic policy permits reading application configuration","observed":"2026-10-15T09:10:00Z"}},
+    {"id":"edge-secret-analytics","from":"secret-store","to":"analytics-reader","relation":"contains credential for","confidence":71,"evidence":{"source":"demo://configuration-audit","finding":"Fictional secret reference maps to analytics identity","observed":"2026-10-15T09:12:00Z"}},
+    {"id":"edge-analytics-db","from":"analytics-reader","to":"customer-db","relation":"can read records from","confidence":96,"evidence":{"source":"demo://data-access-review","finding":"Synthetic access policy grants database read access","observed":"2026-10-15T09:15:00Z"}},
+    {"id":"edge-db-backup","from":"customer-db","to":"backup-bucket","relation":"exports scheduled backup to","confidence":83,"evidence":{"source":"demo://data-flow","finding":"Fictional scheduled backup workflow connects the data store to backup storage","observed":"2026-10-15T09:17:00Z"}},
+    {"id":"edge-workload-backup","from":"workload-cluster","to":"backup-service","relation":"invokes backup job as","confidence":85,"evidence":{"source":"demo://service-map","finding":"Synthetic workload invokes the backup service","observed":"2026-10-15T09:18:00Z"}},
+    {"id":"edge-backup-write","from":"backup-service","to":"backup-bucket","relation":"writes encrypted snapshots to","confidence":92,"evidence":{"source":"demo://storage-review","finding":"Fictional backup identity can write encrypted snapshots","observed":"2026-10-15T09:20:00Z"}},
+    {"id":"edge-deploy-backup","from":"deploy-bot","to":"backup-service","relation":"can assume backup identity","confidence":64,"evidence":{"source":"demo://identity-inventory","finding":"Synthetic trust policy permits a deployment-to-backup identity transition","observed":"2026-10-15T09:22:00Z"}},
+    {"id":"edge-monitor-db","from":"monitoring","to":"customer-db","relation":"reads health metadata from","confidence":55,"evidence":{"source":"demo://monitoring-map","finding":"Low-confidence fixture relationship is limited to health metadata","observed":"2026-10-15T09:24:00Z"}},
+    {"id":"edge-partner-api","from":"external-partner","to":"api-gateway","relation":"federates to","confidence":67,"evidence":{"source":"demo://federation-inventory","finding":"Fictional partner trust is represented for analysis only","observed":"2026-10-15T09:26:00Z"}},
+    {"id":"edge-partner-db","from":"external-partner","to":"customer-db","relation":"has legacy read grant","confidence":28,"evidence":{"source":"demo://access-review","finding":"Low-confidence stale grant included to demonstrate evidence-sensitive ranking","observed":"2026-10-15T09:28:00Z"}}
+  ]
+}

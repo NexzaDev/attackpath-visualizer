@@ -1,0 +1,215 @@
+name: Beta release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+jobs:
+  package:
+    name: package (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux-x64
+            target: linux
+          - runner: macos-latest
+            platform: macos-arm64
+            target: darwin
+          - runner: windows-latest
+            platform: windows-x64
+            target: windows
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install Linux GUI build prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bc gcc libgl1-mesa-dev libwayland-dev libx11-dev libxkbcommon-dev xorg-dev xvfb language-pack-en
+      - name: Install Windows C compiler
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc
+          update: true
+      - name: Verify native runner architecture
+        if: matrix.target == 'darwin'
+        run: test "$(uname -m)" = "arm64"
+      - name: Run tests and static analysis before packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./...
+          go vet ./...
+      - name: Collect dependency license texts
+        shell: bash
+        run: |
+          set -euo pipefail
+          license_output=third-party-license-output
+          test ! -e "$license_output"
+          if ! go run github.com/google/go-licenses@v1.6.0 save --ignore=modernc.org/mathutil --save_path "$license_output" ./cmd/attackpath-visualizer > license-save.log 2>&1; then
+            diagnostics=$(tail -n 80 license-save.log)
+            diagnostics=${diagnostics//'%'/'%25'}
+            diagnostics=${diagnostics//$'\r'/'%0D'}
+            diagnostics=${diagnostics//$'\n'/'%0A'}
+            printf '::error title=go-licenses save::%s\n' "$diagnostics"
+            exit 1
+          fi
+          cat license-save.log
+          rm license-save.log
+          mkdir -p assets/licenses
+          cp LICENSE assets/licenses/AttackPath-Visualizer-MIT.txt
+          test -s assets/licenses/modernc-mathutil-BSD-3-Clause.txt
+          if ! cp -R "$license_output"/. assets/licenses/; then
+            echo '::error title=license bundle::Failed to copy generated license texts into assets/licenses.'
+            exit 1
+          fi
+          cp THIRD_PARTY_NOTICES.md assets/docs/THIRD_PARTY_NOTICES.md
+      - name: Build GUI package and bundle required files
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          report_packaging_failure() {
+            status=$?
+            command=$BASH_COMMAND
+            line=${BASH_LINENO[0]:-unknown}
+            trap - ERR
+            printf 'Packaging failed (exit %s) at line %s: %s\n' "$status" "$line" "$command" >> "$GITHUB_STEP_SUMMARY"
+            annotation=$command
+            annotation=${annotation//'%'/'%25'}
+            annotation=${annotation//$'\r'/'%0D'}
+            annotation=${annotation//$'\n'/'%0A'}
+            printf '::error title=Packaging command failed::exit %s at line %s: %s\n' "$status" "$line" "$annotation"
+            exit "$status"
+          }
+          trap report_packaging_failure ERR
+          test -s assets/icons/icon.png
+          mkdir -p release-output
+          if ! (cd cmd/attackpath-visualizer && go run fyne.io/tools/cmd/fyne@v1.7.4 package --target "${{ matrix.target }}" --release) > fyne-package.log 2>&1; then
+            cat fyne-package.log
+            {
+              echo '## Fyne package failure'
+              echo '```text'
+              tail -n 100 fyne-package.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            diagnostics=$(tail -n 80 fyne-package.log)
+            diagnostics=${diagnostics//'%'/'%25'}
+            diagnostics=${diagnostics//$'\r'/'%0D'}
+            diagnostics=${diagnostics//$'\n'/'%0A'}
+            printf '::error title=Fyne package (%s)::%s\n' "${{ matrix.platform }}" "$diagnostics"
+            exit 1
+          fi
+          cat fyne-package.log
+          case "${{ matrix.target }}" in
+            windows)
+              exe="cmd/attackpath-visualizer/AttackPath Visualizer.exe"
+              test -s "$exe"
+              mkdir -p release-output/windows-bundle/licenses release-output/windows-bundle/docs
+              cp "$exe" release-output/windows-bundle/
+              cp README.md LICENSE THIRD_PARTY_NOTICES.md release-output/windows-bundle/
+              cp docs/USAGE.md docs/LICENSES.md release-output/windows-bundle/docs/
+              cp -R assets/licenses/. release-output/windows-bundle/licenses/
+              test -s release-output/windows-bundle/LICENSE
+              test -s release-output/windows-bundle/THIRD_PARTY_NOTICES.md
+              test -n "$(find release-output/windows-bundle/licenses -type f -print -quit)"
+              if ! pwsh -NoProfile -Command '$ErrorActionPreference = "Stop"; Add-Type -AssemblyName System.Drawing; $icon = [System.Drawing.Icon]::ExtractAssociatedIcon("release-output/windows-bundle/AttackPath Visualizer.exe"); if ($null -eq $icon) { throw "No executable icon resource was found" }; $stream = [System.IO.File]::Create("release-output/windows-icon-check.ico"); try { $icon.Save($stream) } finally { $stream.Dispose() }; if ((Get-Item "release-output/windows-icon-check.ico").Length -lt 100) { throw "Extracted application icon is unexpectedly small" }' > windows-icon-check.log 2>&1; then
+                cat windows-icon-check.log
+                diagnostics=$(tail -n 80 windows-icon-check.log)
+                diagnostics=${diagnostics//'%'/'%25'}
+                diagnostics=${diagnostics//$'\r'/'%0D'}
+                diagnostics=${diagnostics//$'\n'/'%0A'}
+                printf '::error title=Windows executable icon verification::%s\n' "$diagnostics"
+                exit 1
+              fi
+              cat windows-icon-check.log
+              pwsh -NoProfile -Command "Compress-Archive -Path 'release-output/windows-bundle/*' -DestinationPath 'release-output/attackpath-visualizer-windows-x64.zip' -Force"
+              test -s release-output/attackpath-visualizer-windows-x64.zip
+              ;;
+            darwin)
+              app="cmd/attackpath-visualizer/AttackPath Visualizer.app"
+              test -s "$app/Contents/Info.plist"
+              icon=$(find "$app/Contents/Resources" -type f -iname '*.icns' -print -quit)
+              test -n "$icon"
+              mkdir -p release-output/macos-bundle/licenses release-output/macos-bundle/docs
+              cp -R "$app" release-output/macos-bundle/
+              cp README.md LICENSE THIRD_PARTY_NOTICES.md release-output/macos-bundle/
+              cp docs/USAGE.md docs/LICENSES.md release-output/macos-bundle/docs/
+              cp -R assets/licenses/. release-output/macos-bundle/licenses/
+              test -s release-output/macos-bundle/LICENSE
+              test -s release-output/macos-bundle/THIRD_PARTY_NOTICES.md
+              test -n "$(find release-output/macos-bundle/licenses -type f -print -quit)"
+              tar -czf release-output/attackpath-visualizer-macos-arm64.tar.gz -C release-output/macos-bundle .
+              test -s release-output/attackpath-visualizer-macos-arm64.tar.gz
+              ;;
+            linux)
+              app_archive='cmd/attackpath-visualizer/AttackPath Visualizer.tar.xz'
+              test -s "$app_archive"
+              mkdir -p release-output/linux-bundle/licenses release-output/linux-bundle/docs
+              tar -xJf "$app_archive" -C release-output/linux-bundle
+              cp README.md LICENSE THIRD_PARTY_NOTICES.md release-output/linux-bundle/
+              cp docs/USAGE.md docs/LICENSES.md release-output/linux-bundle/docs/
+              cp -R assets/licenses/. release-output/linux-bundle/licenses/
+              test -s release-output/linux-bundle/LICENSE
+              test -s release-output/linux-bundle/THIRD_PARTY_NOTICES.md
+              test -n "$(find release-output/linux-bundle/licenses -type f -print -quit)"
+              icon=$(find release-output/linux-bundle -type f \( -iname '*.png' -o -iname '*.svg' \) -print -quit)
+              test -n "$icon"
+              tar -czf release-output/attackpath-visualizer-linux-x64.tar.gz -C release-output/linux-bundle .
+              test -s release-output/attackpath-visualizer-linux-x64.tar.gz
+              ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beta-package-${{ matrix.platform }}
+          path: release-output/attackpath-visualizer-*
+          if-no-files-found: error
+  publish:
+    name: publish public pre-release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: beta-package-*
+          path: dist
+          merge-multiple: true
+      - name: Verify tag, packages, checksums, and existing release state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          tagged_commit=$(git rev-parse "${GITHUB_REF}^{commit}")
+          test "$tagged_commit" = "$GITHUB_SHA"
+          if gh release view "$tag" --repo "$GH_REPO" >/dev/null 2>&1; then
+            echo "::error::Refusing to overwrite existing release $tag"
+            exit 1
+          fi
+          test -s dist/attackpath-visualizer-linux-x64.tar.gz
+          test -s dist/attackpath-visualizer-macos-arm64.tar.gz
+          test -s dist/attackpath-visualizer-windows-x64.zip
+          (cd dist && sha256sum attackpath-visualizer-linux-x64.tar.gz attackpath-visualizer-macos-arm64.tar.gz attackpath-visualizer-windows-x64.zip > SHA256SUMS)
+          (cd dist && sha256sum --check SHA256SUMS)
+          cat dist/SHA256SUMS
+      - name: Create public pre-release without overwriting
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "$GITHUB_REF_NAME" dist/attackpath-visualizer-linux-x64.tar.gz dist/attackpath-visualizer-macos-arm64.tar.gz dist/attackpath-visualizer-windows-x64.zip dist/SHA256SUMS --prerelease --title "AttackPath Visualizer v0.1.0-dev (dev beta)" --notes-file docs/RELEASE_NOTES.md
