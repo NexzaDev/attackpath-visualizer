@@ -110,6 +110,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	fs.SetOutput(stderr)
 	dbPath := fs.String("db", "", "SQLite database path")
 	jsonOutput := fs.Bool("json", false, "write machine-readable JSON")
+	formatOutput := fs.String("format", "markdown", "report format: markdown or json")
 	confirmImport := fs.Bool("yes", false, "confirm replacing the stored graph during import")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
@@ -131,7 +132,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if len(graph.Assets) == 0 {
+	if len(graph.Assets)+len(graph.Identities) == 0 {
 		history, historyErr := store.ImportHistory(ctx)
 		if historyErr != nil {
 			return historyErr
@@ -156,28 +157,45 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 	switch args[0] {
 	case "overview":
-		paths, err := graph.AllPaths(8, 100)
+		summary, err := app.Overview(ctx)
 		if err != nil {
 			return err
 		}
-		return printValue(stdout, *jsonOutput, map[string]any{"mode": mode, "assets": len(graph.Assets), "relationships": len(graph.Edges), "paths": paths})
+		return printValue(stdout, *jsonOutput, map[string]any{"mode": mode, "assets": len(graph.Assets), "identities": len(graph.Identities), "relationships": len(graph.Edges), "paths": summary.Paths, "paths_by_impact": summary.PathsByImpact, "confidence_distribution": summary.Confidence, "remediation": summary.Remediation})
 	case "assets":
-		return printValue(stdout, *jsonOutput, graph.Assets)
+		return printValue(stdout, *jsonOutput, graph.Nodes())
 	case "paths":
-		if len(graph.Assets) == 0 {
-			return errors.New("no assets are available")
+		if len(graph.Assets)+len(graph.Identities) == 0 {
+			return errors.New("no graph nodes are available")
 		}
-		paths, err := graph.AllPaths(8, 100)
+		analysis, err := app.Analyze(ctx, 8, 100)
 		if err != nil {
 			return err
 		}
-		return printValue(stdout, *jsonOutput, paths)
+		return printValue(stdout, *jsonOutput, analysis.Paths)
+	case "remediation":
+		analysis, err := app.Analyze(ctx, 16, 1000)
+		if err != nil {
+			return err
+		}
+		return printValue(stdout, *jsonOutput, analysis.Remediation)
+	case "report":
+		format := *formatOutput
+		if *jsonOutput {
+			format = "json"
+		}
+		data, err := app.RenderReport(ctx, format)
+		if err != nil {
+			return err
+		}
+		_, err = stdout.Write(data)
+		return err
 	case "import":
 		if fs.NArg() > 1 {
 			return fmt.Errorf("import accepts at most one file argument, got %d", fs.NArg())
 		}
 		input := io.Reader(os.Stdin)
-		if len(graph.Assets) > 0 && !*confirmImport {
+		if len(graph.Assets)+len(graph.Identities) > 0 && !*confirmImport {
 			if !launcher.InteractiveStdin() {
 				return errors.New("import replaces the current graph; pass --yes to confirm in non-interactive use")
 			}
@@ -296,5 +314,5 @@ func printValue(w io.Writer, jsonOutput bool, value any) error {
 }
 
 func printHelp(w io.Writer) {
-	fmt.Fprintf(w, "%s %s\n%s\n\nUsage: attackpath-visualizer <command> [options]\n\nCommands:\n  overview      Summarize local demo or imported data\n  paths         List ranked potential paths\n  assets        List inventoried assets\n  import [file] Import a graph JSON file or stdin\n  export        Export the stored graph as JSON\n  about         Show version and project information\n  diagnostics   Show a sanitized local runtime report\n  notifier      Run or manage the opt-in background notifier\n  config reset-ui  Clear the remembered launcher choice\n  help          Show this help\n\nOptions: --db PATH, --json, --yes (confirm graph replacement)\n", meta.Name, meta.Version, meta.Purpose)
+	fmt.Fprintf(w, "%s %s\n%s\n\nUsage: attackpath-visualizer <command> [options]\n\nCommands:\n  overview      Summarize local demo or imported data\n  paths         List ranked potential paths\n  remediation   Rank path-breaking relationship suggestions\n  report        Write a JSON or Markdown analysis report\n  assets        List inventoried assets and identities\n  import [file] Import a graph JSON file or stdin\n  export        Export the stored graph as JSON\n  about         Show version and project information\n  diagnostics   Show a sanitized local runtime report\n  notifier      Run or manage the opt-in background notifier\n  config reset-ui  Clear the remembered launcher choice\n  help          Show this help\n\nOptions: --db PATH, --json, --format markdown|json (report), --yes (confirm graph replacement)\n", meta.Name, meta.Version, meta.Purpose)
 }

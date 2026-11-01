@@ -10,18 +10,18 @@ Launch with no arguments to choose Dashboard or Terminal. `--ui gui` and `--ui t
 
 The first launch creates a local SQLite database under the OS user configuration directory and loads the clearly labeled, deterministic synthetic graph. Use Settings or the TUI Settings view to inspect the active database path. `--db PATH` chooses another database; `ATTACKPATH_VISUALIZER_DB` is the environment override.
 
-Graph JSON contains `assets` and `edges` arrays. Asset impact is an integer from 1 to 5; edge confidence is 0–100. Edges connect existing, distinct asset IDs and can include evidence source, finding text, and observation time. Duplicate IDs, missing endpoints, self-edges, invalid ranges, malformed JSON, and documents over 8 MiB are rejected. Validation completes before graph replacement. In the CLI, use `import --yes FILE` for a confirmed non-interactive replacement; an interactive terminal asks before replacing. The desktop import dialog also asks for confirmation. A rejected import is recorded without partially replacing the current graph.
+Graph JSON supports `assets`, `identities`, `misconfigurations`, `findings`, and `edges`. Node impact and finding severity are integers from 1 to 5; edge confidence is 0–100. Edges connect existing, distinct asset or identity IDs and require source, finding, and observation evidence. Duplicate IDs, missing endpoints, self-edges, invalid ranges, malformed or multiple JSON documents, entity-count excesses, and documents over 8 MiB are rejected. Validation completes before graph replacement. In the CLI, use `import --yes FILE` for a confirmed non-interactive replacement; an interactive terminal asks before replacing. The desktop import dialog also asks for confirmation. A rejected import is recorded without partially replacing the current graph.
 
-The CLI `export` command writes JSON to standard output. In the TUI, Reports asks for a destination and confirms before overwriting. In the dashboard Reports view, use export to a file or explicitly confirm copying graph/path JSON to the clipboard; those exports may contain inventory identifiers and evidence.
+The CLI `export` command writes graph JSON to standard output. The CLI `report` command writes a JSON or Markdown path-and-remediation report (`--format markdown|json`, or `--json`). In the TUI, Reports asks which format and destination to use and confirms before overwriting. In the dashboard Reports view, export the graph or complete analysis report to a user-selected file, or explicitly confirm copying JSON or Markdown to the clipboard; these exports may contain inventory identifiers and evidence.
 
 ## Dashboard categories
 
-- **Overview** summarizes stored assets, relationships, ranked paths, high-impact records, and import freshness.
-- **Graph** shows a scrollable relationship canvas, accessible node list, edge evidence, zoom controls, and selected-node details.
-- **Paths** ranks directed paths and shows confidence, impact, and the score breakdown; selecting a row opens its local evidence.
-- **Assets** lists identity, type, impact, and description.
+- **Overview** summarizes stored assets, identities, relationships, impact and confidence distributions, ranked paths, remediation choke points, and import freshness. Distribution tiles filter the ranked paths.
+- **Graph** shows a scrollable relationship canvas, accessible asset-and-identity list, edge evidence, zoom controls, and selected-node details including linked findings.
+- **Paths** ranks directed paths and shows confidence, impact, exact score components, and per-edge evidence; selecting a row opens its local evidence. Filtering is available by impact and confidence band.
+- **Assets** lists assets and identities with type, impact, description, and linked findings.
 - **Evidence** links relationships to their source record and finding text.
-- **Remediation** ranks relationships by the number of enumerated paths they participate in. Suggestions are advisory and never change inventory.
+- **Remediation** ranks relationships by paths affected, critical paths, and weighted risk points. Suggestions are advisory and never change inventory.
 - **Imports** validates local JSON and lists recent import outcomes.
 - **Reports** exports the graph or ranked paths to JSON files or, after confirmation, the clipboard.
 - **Notifications** lists local app events with severity, read state, global-search filtering, and links to related records.
@@ -37,6 +37,9 @@ Run `attackpath-visualizer help` for all commands. Examples:
 ```sh
 attackpath-visualizer overview --json
 attackpath-visualizer paths --db ./graph.db --json
+attackpath-visualizer remediation --db ./graph.db --json
+attackpath-visualizer report --format markdown --db ./graph.db
+attackpath-visualizer report --format json --db ./graph.db
 attackpath-visualizer import --yes inventory.json
 attackpath-visualizer export --db ./graph.db
 attackpath-visualizer notifier status
@@ -47,7 +50,7 @@ attackpath-visualizer diagnostics
 
 ## Scoring and limits
 
-A path's impact is the highest impact among its assets. Confidence is compounded across edges in order (integer rounding is applied at each step); score is impact multiplied by the resulting confidence. Path enumeration is bounded to 32 edges and 1,000 results. Review inventory freshness, relationships, and evidence before acting.
+A path's impact component is the highest impact tier among its asset and identity nodes. Confidence is compounded across edges in path order, flooring the integer percentage after each edge; score is impact tier multiplied by the resulting confidence percentage. The explanation and report expose each edge confidence and the final components. Enumeration is cycle-safe, deduplicated, bounded to 32 edges and 1,000 results, and also has a 250,000-edge-expansion budget; limited results identify truncation. Review inventory freshness, relationships, and evidence before acting.
 
 ## Notifications and privacy
 

@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/NexzaDev/attackpath-visualizer/internal/launcher"
 	"github.com/NexzaDev/attackpath-visualizer/internal/meta"
 	"github.com/NexzaDev/attackpath-visualizer/internal/notifier"
+	"github.com/NexzaDev/attackpath-visualizer/internal/remediation"
 	"github.com/NexzaDev/attackpath-visualizer/internal/repository"
 	"github.com/NexzaDev/attackpath-visualizer/internal/service"
 )
@@ -55,23 +57,26 @@ var Categories = []Category{
 }
 
 type Dashboard struct {
-	app        fyne.App
-	window     fyne.Window
-	store      *repository.Store
-	service    service.Service
-	graph      domain.Graph
-	paths      []domain.Path
-	history    []map[string]any
-	notices    []repository.Notification
-	search     string
-	current    string
-	collapsed  bool
-	zoom       float32
-	demo       bool
-	switchMode func(string) error
-	content    *fyne.Container
-	modeLabel  *widget.Label
-	searchBox  *widget.Entry
+	app              fyne.App
+	window           fyne.Window
+	store            *repository.Store
+	service          service.Service
+	graph            domain.Graph
+	paths            []domain.Path
+	summary          service.Summary
+	impactFilter     int
+	confidenceFilter int
+	history          []map[string]any
+	notices          []repository.Notification
+	search           string
+	current          string
+	collapsed        bool
+	zoom             float32
+	demo             bool
+	switchMode       func(string) error
+	content          *fyne.Container
+	modeLabel        *widget.Label
+	searchBox        *widget.Entry
 }
 
 func NewDashboard(app fyne.App, window fyne.Window, store *repository.Store, switchMode func(string) error) (*Dashboard, error) {
@@ -90,19 +95,19 @@ func NewDashboard(app fyne.App, window fyne.Window, store *repository.Store, swi
 func (d *Dashboard) refresh() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	graph, err := d.store.Graph(ctx)
-	if err != nil {
-		return err
-	}
 	history, err := d.store.ImportHistory(ctx)
 	if err != nil {
 		return err
 	}
-	if len(graph.Assets) == 0 && len(history) == 0 {
-		if err := d.service.LoadDemo(ctx); err != nil {
+	summary, err := d.service.Overview(ctx)
+	if err != nil {
+		return err
+	}
+	if len(summary.Graph.Assets)+len(summary.Graph.Identities) == 0 && len(history) == 0 {
+		if err = d.service.LoadDemo(ctx); err != nil {
 			return err
 		}
-		graph, err = d.store.Graph(ctx)
+		summary, err = d.service.Overview(ctx)
 		if err != nil {
 			return err
 		}
@@ -111,16 +116,13 @@ func (d *Dashboard) refresh() error {
 			return err
 		}
 	}
-	paths, err := graph.AllPaths(16, 1000)
-	if err != nil {
-		return err
-	}
 	notices, err := d.store.Notifications(ctx, 200)
 	if err != nil {
 		return err
 	}
-	d.graph = graph
-	d.paths = paths
+	d.summary = summary
+	d.graph = summary.Graph
+	d.paths = summary.Paths.Paths
 	d.history = history
 	d.notices = notices
 	d.demo = len(history) > 0 && history[0]["source"] == "demo fixture"
@@ -255,23 +257,36 @@ func (d *Dashboard) heading(title, subtitle string) fyne.CanvasObject {
 }
 
 func (d *Dashboard) overview() fyne.CanvasObject {
-	critical := 0
-	for _, path := range d.paths {
-		if path.Impact >= 4 {
-			critical++
-		}
-	}
+	critical := d.summary.PathsByImpact[3] + d.summary.PathsByImpact[4]
 	latest := "No imports recorded"
 	if len(d.history) > 0 {
-		latest = fmt.Sprintf("%v · %v assets · %v relationships", d.history[0]["imported_at"], d.history[0]["assets"], d.history[0]["edges"])
+		latest = fmt.Sprintf("%v · %v assets · %v identities · %v relationships", d.history[0]["imported_at"], d.history[0]["assets"], d.history[0]["identities"], d.history[0]["edges"])
 	}
-	summary := container.NewGridWithColumns(4,
+	metrics := container.NewGridWithColumns(5,
 		metric("Assets", fmt.Sprint(len(d.graph.Assets)), "Stored inventory"),
+		metric("Identities", fmt.Sprint(len(d.graph.Identities)), "Stored principals"),
 		metric("Relationships", fmt.Sprint(len(d.graph.Edges)), "Evidence-linked edges"),
-		metric("Potential paths", fmt.Sprint(len(d.paths)), "Bounded directed paths"),
-		metric("High impact", fmt.Sprint(critical), "Impact tier 4–5"),
+		metric("Potential paths", fmt.Sprint(len(d.paths)), "Ranked simple paths"),
+		metric("High impact", fmt.Sprint(critical), "Path impact tier 4–5"),
 	)
+	impactTiles := make([]fyne.CanvasObject, 5)
+	for tier := 1; tier <= 5; tier++ {
+		tier := tier
+		impactTiles[tier-1] = widget.NewButton(fmt.Sprintf("Impact %d/5 · %d paths", tier, d.summary.PathsByImpact[tier-1]), func() {
+			d.impactFilter, d.confidenceFilter = tier, 0
+			d.show("paths")
+		})
+	}
+	confidenceTiles := make([]fyne.CanvasObject, len(d.summary.Confidence))
+	for index, band := range d.summary.Confidence {
+		index, band := index, band
+		confidenceTiles[index] = widget.NewButton(fmt.Sprintf("%s · %d paths", band.Label, band.Count), func() {
+			d.confidenceFilter, d.impactFilter = index+1, 0
+			d.show("paths")
+		})
+	}
 	rows := make([][]string, 0, len(d.paths))
+	visiblePaths := make([]domain.Path, 0, len(d.paths))
 	for _, path := range d.paths {
 		if len(rows) == 8 {
 			break
@@ -279,18 +294,20 @@ func (d *Dashboard) overview() fyne.CanvasObject {
 		if !d.matchesPath(path) {
 			continue
 		}
+		visiblePaths = append(visiblePaths, path)
 		rows = append(rows, []string{pathLabel(path), fmt.Sprintf("%d", path.Score), fmt.Sprintf("%d%%", path.Confidence), fmt.Sprintf("Impact %d/5", path.Impact)})
 	}
-	table := stringTable([]string{"Potential path", "Score", "Confidence", "Impact"}, rows, []float32{320, 70, 100, 100}, func(row int) {
-		if row >= 0 && row < len(rows) {
-			d.showPathDetails(rows[row][0])
+	table := stringTable([]string{"Potential path", "Score", "Confidence", "Impact"}, rows, []float32{340, 70, 100, 100}, func(row int) {
+		if row >= 0 && row < len(visiblePaths) {
+			d.showPathDetails(visiblePaths[row])
 		}
 	})
 	freshness := widget.NewCard("Import freshness", "Latest recorded input", widget.NewLabel(latest))
-	choke := d.chokePoints()
-	chokeCard := widget.NewCard("Relationship choke points", "Edges used by the most ranked paths", choke)
-	lower := container.NewGridWithColumns(2, freshness, chokeCard)
-	body := container.NewVBox(d.heading("Exposure overview", "Attention summary computed from the current local graph."), summary, container.NewHBox(widget.NewLabelWithStyle("Highest-ranked paths", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), widget.NewButton("View all paths", func() { d.show("paths") })), table, lower)
+	choke := widget.NewCard("Relationship choke points", "Suggestions rank paths affected then risk points", d.chokePoints())
+	confidence := widget.NewCard("Confidence distribution", "Enumerated paths by compounded confidence", container.NewGridWithColumns(5, confidenceTiles...))
+	impact := widget.NewCard("Paths by impact tier", "Select a tier to filter ranked paths", container.NewGridWithColumns(5, impactTiles...))
+	lower := container.NewGridWithColumns(2, freshness, choke)
+	body := container.NewVBox(d.heading("Exposure overview", "Attention summary computed from the current local graph."), metrics, impact, confidence, container.NewHBox(widget.NewLabelWithStyle("Highest-ranked paths", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}), widget.NewButton("View all paths", func() { d.impactFilter, d.confidenceFilter = 0, 0; d.show("paths") })), table, lower)
 	return container.NewVScroll(container.NewPadded(body))
 }
 
@@ -299,17 +316,17 @@ func metric(title, value, note string) fyne.CanvasObject {
 }
 
 func (d *Dashboard) graphScreen() fyne.CanvasObject {
-	assets := d.filteredAssets()
+	nodes := d.filteredNodes()
 	selected := widget.NewLabel("Select a node to focus its direct relationships.")
-	list := widget.NewList(func() int { return len(assets) }, func() fyne.CanvasObject { return widget.NewLabel("template") }, func(id widget.ListItemID, object fyne.CanvasObject) {
-		asset := assets[id]
-		object.(*widget.Label).SetText(fmt.Sprintf("%s  ·  %s  ·  impact %d/5", asset.Name, asset.Kind, asset.Impact))
+	list := widget.NewList(func() int { return len(nodes) }, func() fyne.CanvasObject { return widget.NewLabel("template") }, func(id widget.ListItemID, object fyne.CanvasObject) {
+		node := nodes[id]
+		object.(*widget.Label).SetText(fmt.Sprintf("%s · %s/%s · impact %d/5", node.Name, node.EntityType, node.Kind, node.Impact))
 	})
 	list.OnSelected = func(id widget.ListItemID) {
-		if id < 0 || id >= len(assets) {
+		if id < 0 || id >= len(nodes) {
 			return
 		}
-		selected.SetText(d.nodeDetails(assets[id]))
+		selected.SetText(d.nodeDetails(nodes[id]))
 	}
 	zoomLabel := widget.NewLabel(fmt.Sprintf("%d%%", int(d.zoom*100)))
 	zoom := func(delta float32) {
@@ -324,9 +341,9 @@ func (d *Dashboard) graphScreen() fyne.CanvasObject {
 		d.renderCurrent()
 	}
 	zoomControls := container.NewHBox(widget.NewButton("−", func() { zoom(-0.1) }), zoomLabel, widget.NewButton("+", func() { zoom(0.1) }))
-	mapPage := container.NewBorder(widget.NewLabel(fmt.Sprintf("Relationship map · %d visible nodes of %d · scroll to pan", min(len(assets), 160), len(d.graph.Assets))), nil, nil, nil, container.NewScroll(d.graphCanvas(assets)))
+	mapPage := container.NewBorder(widget.NewLabel(fmt.Sprintf("Relationship map · %d visible nodes of %d · scroll to pan", min(len(nodes), 160), len(d.graph.Nodes()))), nil, nil, nil, container.NewScroll(d.graphCanvas(nodes)))
 	mapPage = container.NewBorder(zoomControls, nil, nil, nil, mapPage)
-	listPage := container.NewBorder(widget.NewLabel(fmt.Sprintf("Node inventory · %d assets · global search filters this list", len(assets))), nil, nil, nil, list)
+	listPage := container.NewBorder(widget.NewLabel(fmt.Sprintf("Node inventory · %d assets and identities · global search filters this list", len(nodes))), nil, nil, nil, list)
 	edges := d.filteredEdges()
 	edgeList := widget.NewList(func() int { return len(edges) }, func() fyne.CanvasObject { return widget.NewLabel("template") }, func(id widget.ListItemID, object fyne.CanvasObject) {
 		edge := edges[id]
@@ -340,15 +357,15 @@ func (d *Dashboard) graphScreen() fyne.CanvasObject {
 	}
 	edgePage := container.NewBorder(widget.NewLabel(fmt.Sprintf("All %d matching relationships · select a row for evidence", len(edges))), nil, nil, nil, edgeList)
 	tabs := container.NewAppTabs(container.NewTabItem("Graph canvas", mapPage), container.NewTabItem("Accessible node list", listPage), container.NewTabItem("Edges & evidence", edgePage))
-	if len(assets) == 0 {
+	if len(nodes) == 0 {
 		return d.emptyState("No graph records", "Import a JSON inventory or restore a demo database to populate the graph.")
 	}
 	return container.NewPadded(container.NewBorder(d.heading("Relationship graph", "Pan by scrolling · zoom with + / − · select a node to focus relationships."), nil, nil, nil, container.NewGridWithColumns(2, tabs, container.NewVScroll(selected))))
 }
 
-func (d *Dashboard) graphCanvas(assets []domain.Asset) fyne.CanvasObject {
+func (d *Dashboard) graphCanvas(nodes []domain.Node) fyne.CanvasObject {
 	const maxVisible = 160
-	visible := assets
+	visible := nodes
 	if len(visible) > maxVisible {
 		visible = visible[:maxVisible]
 	}
@@ -368,10 +385,10 @@ func (d *Dashboard) graphCanvas(assets []domain.Asset) fyne.CanvasObject {
 	background.Resize(fyne.NewSize(mapWidth, mapHeight))
 	objects := []fyne.CanvasObject{background}
 	positions := make(map[string]fyne.Position, len(visible))
-	for index, asset := range visible {
+	for index, node := range visible {
 		column, row := index%columns, index/columns
 		position := fyne.NewPos(18+float32(column)*(baseWidth+gapX), 18+float32(row)*(baseHeight+gapY))
-		positions[asset.ID] = position
+		positions[node.ID] = position
 	}
 	for _, edge := range d.graph.Edges {
 		from, fromOK := positions[edge.From]
@@ -385,12 +402,12 @@ func (d *Dashboard) graphCanvas(assets []domain.Asset) fyne.CanvasObject {
 		line.Position2 = fyne.NewPos(to.X, to.Y+baseHeight/2)
 		objects = append(objects, line)
 	}
-	for index, asset := range visible {
-		position := positions[asset.ID]
-		status := fmt.Sprintf("Impact %d/5 · %s", asset.Impact, asset.Kind)
-		button := widget.NewButton(asset.Name+"\n"+status, func(record domain.Asset) func() {
+	for index, node := range visible {
+		position := positions[node.ID]
+		status := fmt.Sprintf("Impact %d/5 · %s/%s", node.Impact, node.EntityType, node.Kind)
+		button := widget.NewButton(node.Name+"\n"+status, func(record domain.Node) func() {
 			return func() { dialog.ShowInformation(record.Name, d.nodeDetails(record), d.window) }
-		}(asset))
+		}(node))
 		button.Resize(fyne.NewSize(baseWidth, baseHeight))
 		button.Move(position)
 		if index%2 == 0 {
@@ -401,46 +418,77 @@ func (d *Dashboard) graphCanvas(assets []domain.Asset) fyne.CanvasObject {
 	return container.NewWithoutLayout(objects...)
 }
 
-func (d *Dashboard) nodeDetails(asset domain.Asset) string {
-	lines := []string{fmt.Sprintf("ID: %s", asset.ID), fmt.Sprintf("Type: %s", asset.Kind), fmt.Sprintf("Impact: %d/5", asset.Impact), asset.Description, "", "Direct relationships:"}
+func (d *Dashboard) nodeDetails(node domain.Node) string {
+	lines := []string{fmt.Sprintf("ID: %s", node.ID), fmt.Sprintf("Entity: %s", node.EntityType), fmt.Sprintf("Type: %s", node.Kind), fmt.Sprintf("Impact: %d/5", node.Impact), node.Description, "", "Direct relationships:"}
+	related := 0
 	for _, edge := range d.graph.Edges {
-		if edge.From == asset.ID || edge.To == asset.ID {
-			lines = append(lines, fmt.Sprintf("%s — %s → %s", edge.ID, edge.From, edge.To))
+		if edge.From == node.ID || edge.To == node.ID {
+			lines = append(lines, fmt.Sprintf("%s — %s → %s · %s · %d%%", edge.ID, edge.From, edge.To, edge.Relation, edge.Confidence))
+			related++
 		}
 	}
-	if len(lines) == 6 {
-		lines = append(lines, "No direct relationships are recorded.")
+	for _, item := range d.graph.Misconfigurations {
+		if item.AssetID == node.ID || item.IdentityID == node.ID {
+			lines = append(lines, fmt.Sprintf("Misconfiguration · severity %d · %s", item.Severity, item.Title))
+			related++
+		}
+	}
+	for _, item := range d.graph.Findings {
+		if item.AssetID == node.ID || item.IdentityID == node.ID {
+			lines = append(lines, fmt.Sprintf("Finding · severity %d · %s · %s", item.Severity, item.Title, item.Source))
+			related++
+		}
+	}
+	if related == 0 {
+		lines = append(lines, "No direct relationships or findings are recorded.")
 	}
 	return strings.Join(lines, "\n")
 }
 
 func (d *Dashboard) pathsScreen() fyne.CanvasObject {
 	rows := make([][]string, 0, len(d.paths))
+	visible := make([]domain.Path, 0, len(d.paths))
 	for _, path := range d.paths {
 		if d.matchesPath(path) {
+			visible = append(visible, path)
 			rows = append(rows, []string{pathLabel(path), fmt.Sprint(path.Score), fmt.Sprintf("%d%%", path.Confidence), path.Explanation})
 		}
 	}
-	table := stringTable([]string{"Directed path", "Score", "Confidence", "Score breakdown"}, rows, []float32{300, 70, 90, 280}, func(row int) {
-		if row >= 0 && row < len(rows) {
-			d.showPathDetails(rows[row][0])
+	table := stringTable([]string{"Directed path", "Score", "Confidence", "Score breakdown"}, rows, []float32{340, 70, 90, 320}, func(row int) {
+		if row >= 0 && row < len(visible) {
+			d.showPathDetails(visible[row])
 		}
 	})
-	return container.NewPadded(container.NewBorder(d.heading("Ranked potential paths", "Impact × compounded confidence · select a row for evidence and components"), nil, nil, nil, table))
+	subtitle := "Impact tier × compounded edge confidence · select a row for exact components and evidence"
+	if d.summary.Paths.Truncated {
+		subtitle += " · result capped; rankings cover the bounded path set"
+	}
+	heading := []fyne.CanvasObject{d.heading("Ranked potential paths", subtitle)}
+	if d.impactFilter > 0 || d.confidenceFilter > 0 {
+		filterLabel := "Filtered path results"
+		if d.impactFilter > 0 {
+			filterLabel = fmt.Sprintf("Impact tier %d/5", d.impactFilter)
+		}
+		if d.confidenceFilter > 0 && d.confidenceFilter <= len(d.summary.Confidence) {
+			filterLabel = d.summary.Confidence[d.confidenceFilter-1].Label + " confidence"
+		}
+		heading = append(heading, container.NewHBox(widget.NewLabel("Filter: "+filterLabel), widget.NewButton("Clear filter", func() { d.impactFilter, d.confidenceFilter = 0, 0; d.show("paths") })))
+	}
+	return container.NewPadded(container.NewBorder(container.NewVBox(heading...), nil, nil, nil, table))
 }
 
 func (d *Dashboard) assetsScreen() fyne.CanvasObject {
-	assets := d.filteredAssets()
-	rows := make([][]string, len(assets))
-	for i, asset := range assets {
-		rows[i] = []string{asset.Name, asset.Kind, fmt.Sprintf("%d/5", asset.Impact), asset.Description}
+	nodes := d.filteredNodes()
+	rows := make([][]string, len(nodes))
+	for i, node := range nodes {
+		rows[i] = []string{node.Name, node.EntityType, node.Kind, fmt.Sprintf("%d/5", node.Impact), node.Description}
 	}
-	table := stringTable([]string{"Asset", "Type", "Impact", "Description"}, rows, []float32{220, 110, 70, 300}, func(row int) {
-		if row >= 0 && row < len(assets) {
-			dialog.ShowInformation(assets[row].Name, fmt.Sprintf("ID: %s\nType: %s\nImpact: %d/5\n\n%s", assets[row].ID, assets[row].Kind, assets[row].Impact, assets[row].Description), d.window)
+	table := stringTable([]string{"Node", "Entity", "Type", "Impact", "Description"}, rows, []float32{210, 80, 120, 70, 300}, func(row int) {
+		if row >= 0 && row < len(nodes) {
+			dialog.ShowInformation(nodes[row].Name, d.nodeDetails(nodes[row]), d.window)
 		}
 	})
-	return container.NewPadded(container.NewBorder(d.heading("Assets", "Inventory records from the current local graph."), nil, nil, nil, table))
+	return container.NewPadded(container.NewBorder(d.heading("Assets and identities", "Inventory records and linked relationships from the current local graph."), nil, nil, nil, table))
 }
 
 func (d *Dashboard) evidenceScreen() fyne.CanvasObject {
@@ -459,45 +507,34 @@ func (d *Dashboard) evidenceScreen() fyne.CanvasObject {
 }
 
 func (d *Dashboard) remediationScreen() fyne.CanvasObject {
-	counts := make(map[string]int)
-	edges := make(map[string]domain.Edge)
-	for _, edge := range d.graph.Edges {
-		edges[edge.ID] = edge
-	}
-	for _, path := range d.paths {
-		for _, edge := range path.Edges {
-			counts[edge.ID]++
-		}
-	}
-	type ranked struct {
-		edge  domain.Edge
-		count int
-	}
-	rankedEdges := make([]ranked, 0, len(edges))
-	for id, edge := range edges {
-		rankedEdges = append(rankedEdges, ranked{edge: edge, count: counts[id]})
-	}
-	sort.Slice(rankedEdges, func(i, j int) bool {
-		if rankedEdges[i].count == rankedEdges[j].count {
-			return rankedEdges[i].edge.ID < rankedEdges[j].edge.ID
-		}
-		return rankedEdges[i].count > rankedEdges[j].count
-	})
-	rows := make([][]string, 0, len(rankedEdges))
-	visible := make([]ranked, 0, len(rankedEdges))
-	for _, item := range rankedEdges {
-		if d.search != "" && !strings.Contains(strings.ToLower(item.edge.Relation+" "+item.edge.ID), d.search) {
+	result := d.summary.Remediation
+	visible := make([]remediation.Suggestion, 0, len(result.Suggestions))
+	rows := make([][]string, 0, len(result.Suggestions))
+	for _, item := range result.Suggestions {
+		if d.search != "" && !strings.Contains(strings.ToLower(item.Relation+" "+item.EdgeID+" "+item.From+" "+item.To), d.search) {
 			continue
 		}
-		rows = append(rows, []string{item.edge.From + " → " + item.edge.To, item.edge.Relation, fmt.Sprint(item.count), item.edge.ID})
 		visible = append(visible, item)
+		rows = append(rows, []string{item.From + " → " + item.To, item.Relation, fmt.Sprint(item.PathsAffected), fmt.Sprint(item.CriticalPaths), fmt.Sprint(item.WeightedRiskPoints), item.EdgeID})
 	}
-	table := stringTable([]string{"Relationship", "Permission", "Ranked paths", "Edge ID"}, rows, []float32{240, 190, 100, 170}, func(row int) {
+	table := stringTable([]string{"Relationship", "Permission", "Paths affected", "Critical", "Risk points", "Edge ID"}, rows, []float32{210, 170, 100, 80, 100, 170}, func(row int) {
 		if row >= 0 && row < len(visible) {
-			dialog.ShowInformation("Advisory remediation", fmt.Sprintf("Review whether the %q relationship is required. Removing or restricting this edge would affect %d currently enumerated paths. This is an advisory; the app does not modify inventory.", visible[row].edge.Relation, visible[row].count), d.window)
+			item := visible[row]
+			detail := fmt.Sprintf("%s\n\nPaths affected: %d\nCritical paths: %d\nWeighted risk points: %d\n\nThis is an advisory; the app does not modify inventory.", item.Recommendation, item.PathsAffected, item.CriticalPaths, item.WeightedRiskPoints)
+			for _, edge := range d.graph.Edges {
+				if edge.ID == item.EdgeID {
+					detail += fmt.Sprintf("\n\nEvidence source: %s\nFinding: %s\nObserved: %s", edge.Evidence.Source, edge.Evidence.Finding, edge.Evidence.Observed)
+					break
+				}
+			}
+			dialog.ShowInformation("Advisory remediation", detail, d.window)
 		}
 	})
-	return container.NewPadded(container.NewBorder(d.heading("Remediation priorities", "Edges are ranked by how many enumerated paths include them. Suggestions are advisory."), nil, nil, nil, table))
+	note := "Suggestions rank choke points by the number of enumerated paths affected, then weighted risk points."
+	if result.PathsTruncated {
+		note += " Path enumeration was truncated; rankings cover the displayed bounded result only."
+	}
+	return container.NewPadded(container.NewBorder(d.heading("Remediation priorities", note), nil, nil, nil, table))
 }
 
 func (d *Dashboard) importsScreen() fyne.CanvasObject {
@@ -516,29 +553,37 @@ func (d *Dashboard) importsScreen() fyne.CanvasObject {
 func (d *Dashboard) reportsScreen() fyne.CanvasObject {
 	graphButton := widget.NewButton("Export graph JSON…", func() { d.saveReport("graph") })
 	copyGraph := widget.NewButton("Copy graph JSON", func() { d.copyReport("graph") })
-	pathsButton := widget.NewButton("Export ranked paths…", func() { d.saveReport("paths") })
-	copyPaths := widget.NewButton("Copy ranked paths", func() { d.copyReport("paths") })
-	return container.NewPadded(container.NewVBox(d.heading("Reports", "Export local graph or scored paths to a user-selected JSON file or clipboard."), widget.NewCard("Graph export", "Assets, relationships and source evidence", container.NewHBox(graphButton, copyGraph)), widget.NewCard("Path report", "Ranked potential paths with score explanation", container.NewHBox(pathsButton, copyPaths))))
+	jsonButton := widget.NewButton("Export analysis JSON…", func() { d.saveReport("report-json") })
+	copyJSON := widget.NewButton("Copy analysis JSON", func() { d.copyReport("report-json") })
+	markdownButton := widget.NewButton("Export Markdown…", func() { d.saveReport("markdown") })
+	copyMarkdown := widget.NewButton("Copy Markdown", func() { d.copyReport("markdown") })
+	return container.NewPadded(container.NewVBox(d.heading("Reports", "Export local inventory, scored paths, evidence, and remediation advice to JSON or Markdown."), widget.NewCard("Graph export", "Assets, identities, relationships, and source evidence", container.NewHBox(graphButton, copyGraph)), widget.NewCard("Analysis report", "Ranked paths with exact score components and evidence", container.NewHBox(jsonButton, copyJSON)), widget.NewCard("Markdown report", "Human-readable path and choke-point remediation report", container.NewHBox(markdownButton, copyMarkdown))))
 }
 
 func (d *Dashboard) copyReport(kind string) {
-	var value any
+	var data []byte
+	var err error
 	label := "graph"
-	if kind == "paths" {
-		value = d.paths
-		label = "ranked paths"
-	} else {
-		value = d.graph
+	switch kind {
+	case "graph":
+		data, err = json.MarshalIndent(d.graph, "", "  ")
+	case "report-json":
+		data, err = d.service.RenderReport(context.Background(), "json")
+		label = "analysis JSON report"
+	case "markdown":
+		data, err = d.service.RenderReport(context.Background(), "markdown")
+		label = "Markdown report"
+	default:
+		err = fmt.Errorf("unknown report kind %q", kind)
 	}
-	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		dialog.ShowError(err, d.window)
 		return
 	}
-	dialog.ShowConfirm("Copy local data?", fmt.Sprintf("The %s JSON includes local inventory data and evidence. Copy it to the clipboard?", label), func(ok bool) {
+	dialog.ShowConfirm("Copy local data?", fmt.Sprintf("The %s includes local inventory data and evidence. Copy it to the clipboard?", label), func(ok bool) {
 		if ok {
 			d.window.Clipboard().SetContent(string(data))
-			dialog.ShowInformation("Copied", fmt.Sprintf("The %s JSON is on the clipboard.", label), d.window)
+			dialog.ShowInformation("Copied", fmt.Sprintf("The %s is on the clipboard.", label), d.window)
 		}
 	}, d.window)
 }
@@ -847,10 +892,17 @@ func (storageJSONFilter) Includes(uri fyne.URI) bool {
 func (d *Dashboard) saveReport(kind string) {
 	var data []byte
 	var err error
-	if kind == "graph" {
+	extension := ".json"
+	switch kind {
+	case "graph":
 		data, err = json.MarshalIndent(d.graph, "", "  ")
-	} else {
-		data, err = json.MarshalIndent(d.paths, "", "  ")
+	case "report-json":
+		data, err = d.service.RenderReport(context.Background(), "json")
+	case "markdown":
+		data, err = d.service.RenderReport(context.Background(), "markdown")
+		extension = ".md"
+	default:
+		err = fmt.Errorf("unknown report kind %q", kind)
 	}
 	if err != nil {
 		dialog.ShowError(err, d.window)
@@ -869,9 +921,12 @@ func (d *Dashboard) saveReport(kind string) {
 			dialog.ShowError(err, d.window)
 			return
 		}
-		dialog.ShowInformation("Report exported", "The JSON report was saved to the selected file.", d.window)
+		dialog.ShowInformation("Report exported", "The report was saved to the selected file.", d.window)
 	}, d.window)
-	fileDialog.SetFileName("attackpath-" + kind + ".json")
+	fileDialog.SetFileName("attackpath-" + kind + extension)
+	if extension == ".json" {
+		fileDialog.SetFilter(storageJSONFilter{})
+	}
 	fileDialog.Show()
 }
 
@@ -990,65 +1045,42 @@ func openExternal(target string) error {
 }
 
 func pathLabel(path domain.Path) string {
-	labels := make([]string, len(path.Assets))
-	for index, asset := range path.Assets {
-		labels[index] = fmt.Sprintf("%s [%s]", asset.Name, asset.ID)
+	labels := make([]string, len(path.Nodes))
+	for index, node := range path.Nodes {
+		labels[index] = fmt.Sprintf("%s [%s]", node.Name, node.ID)
 	}
 	return strings.Join(labels, " → ")
 }
 
-func (d *Dashboard) showPathDetails(label string) {
-	for _, path := range d.paths {
-		if pathLabel(path) != label {
-			continue
-		}
-		lines := []string{path.Explanation, fmt.Sprintf("Confidence: %d%%", path.Confidence), fmt.Sprintf("Impact: %d/5", path.Impact), "", "Evidence by edge:"}
-		for _, edge := range path.Edges {
-			lines = append(lines, fmt.Sprintf("• %s → %s · %s · %d%%", edge.From, edge.To, edge.Relation, edge.Confidence), fmt.Sprintf("  Source: %s", edge.Evidence.Source), fmt.Sprintf("  Finding: %s", edge.Evidence.Finding))
-		}
-		dialog.ShowInformation("Potential path details", strings.Join(lines, "\n"), d.window)
-		return
+func (d *Dashboard) showPathDetails(path domain.Path) {
+	lines := []string{path.Explanation, fmt.Sprintf("Impact component: tier %d/5", path.Components.ImpactTier), fmt.Sprintf("Edge confidence components: %v", path.Components.EdgeConfidences), fmt.Sprintf("Compounded confidence: %d%%", path.Components.CompoundedConfidence), fmt.Sprintf("Score: %d points", path.Components.Score), "", "Evidence by edge:"}
+	for _, edge := range path.Edges {
+		lines = append(lines, fmt.Sprintf("• %s → %s · %s · %d%%", edge.From, edge.To, edge.Relation, edge.Confidence), fmt.Sprintf("  Source: %s", edge.Evidence.Source), fmt.Sprintf("  Finding: %s", edge.Evidence.Finding), fmt.Sprintf("  Observed: %s", edge.Evidence.Observed))
 	}
+	dialog.ShowInformation("Potential path details", strings.Join(lines, "\n"), d.window)
 }
 
 func (d *Dashboard) chokePoints() fyne.CanvasObject {
-	counts := make(map[string]int)
-	edges := make(map[string]domain.Edge)
-	for _, path := range d.paths {
-		for _, edge := range path.Edges {
-			counts[edge.ID]++
-			edges[edge.ID] = edge
-		}
-	}
-	ids := make([]string, 0, len(counts))
-	for id := range counts {
-		ids = append(ids, id)
-	}
-	sort.Slice(ids, func(i, j int) bool {
-		if counts[ids[i]] == counts[ids[j]] {
-			return ids[i] < ids[j]
-		}
-		return counts[ids[i]] > counts[ids[j]]
-	})
 	items := make([]fyne.CanvasObject, 0, 4)
-	for i, id := range ids {
-		if i == 4 {
+	for index, suggestion := range d.summary.Remediation.Suggestions {
+		if index == 4 {
 			break
 		}
-		edge := edges[id]
-		items = append(items, widget.NewLabel(fmt.Sprintf("%d paths · %s — %s → %s", counts[id], id, edge.From, edge.To)))
+		items = append(items, widget.NewLabel(fmt.Sprintf("%d paths · %s — %s → %s · %d risk points", suggestion.PathsAffected, suggestion.EdgeID, suggestion.From, suggestion.To, suggestion.WeightedRiskPoints)))
 	}
 	if len(items) == 0 {
-		return widget.NewLabel("No paths are currently recorded.")
+		return widget.NewLabel("No path-affecting edges are currently available.")
 	}
 	return container.NewVBox(items...)
 }
 
-func (d *Dashboard) filteredAssets() []domain.Asset {
-	result := make([]domain.Asset, 0, len(d.graph.Assets))
-	for _, asset := range d.graph.Assets {
-		if d.search == "" || strings.Contains(strings.ToLower(asset.Name+" "+asset.Kind+" "+asset.ID+" "+asset.Description), d.search) {
-			result = append(result, asset)
+func (d *Dashboard) filteredNodes() []domain.Node {
+	all := d.graph.Nodes()
+	result := make([]domain.Node, 0, len(all))
+	for _, node := range all {
+		value := strings.ToLower(node.Name + " " + node.EntityType + " " + node.Kind + " " + node.ID + " " + node.Description)
+		if d.search == "" || strings.Contains(value, d.search) {
+			result = append(result, node)
 		}
 	}
 	return result
@@ -1066,12 +1098,18 @@ func (d *Dashboard) filteredEdges() []domain.Edge {
 }
 
 func (d *Dashboard) matchesPath(path domain.Path) bool {
+	if d.impactFilter > 0 && path.Impact != d.impactFilter {
+		return false
+	}
+	if d.confidenceFilter > 0 && min(path.Confidence/20, 4)+1 != d.confidenceFilter {
+		return false
+	}
 	value := pathLabel(path) + " " + path.Explanation
-	for _, asset := range path.Assets {
-		value += " " + asset.Name + " " + asset.ID
+	for _, node := range path.Nodes {
+		value += " " + node.Name + " " + node.ID
 	}
 	for _, edge := range path.Edges {
-		value += " " + edge.Relation + " " + edge.Evidence.Finding
+		value += " " + edge.Relation + " " + edge.Evidence.Finding + " " + edge.Evidence.Source
 	}
 	return d.matchesText(value)
 }
@@ -1135,12 +1173,20 @@ func stringTable(headers []string, rows [][]string, widths []float32, selected f
 				if id.Col >= len(leftRow) || id.Col >= len(rightRow) {
 					return false
 				}
-				leftValue := strings.ToLower(leftRow[id.Col])
-				rightValue := strings.ToLower(rightRow[id.Col])
-				if ascending {
-					return leftValue < rightValue
+				leftText := strings.ToLower(leftRow[id.Col])
+				rightText := strings.ToLower(rightRow[id.Col])
+				leftNumber, leftErr := strconv.ParseFloat(strings.TrimSuffix(leftText, "%"), 64)
+				rightNumber, rightErr := strconv.ParseFloat(strings.TrimSuffix(rightText, "%"), 64)
+				if leftErr == nil && rightErr == nil {
+					if ascending {
+						return leftNumber < rightNumber
+					}
+					return leftNumber > rightNumber
 				}
-				return leftValue > rightValue
+				if ascending {
+					return leftText < rightText
+				}
+				return leftText > rightText
 			})
 			table.UnselectAll()
 			table.Refresh()

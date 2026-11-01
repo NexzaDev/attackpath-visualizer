@@ -370,6 +370,21 @@ func makePath(nodes []Node, edges []Edge) (Path, error) {
 	return Path{Nodes: append([]Node(nil), nodes...), Assets: assets, Edges: append([]Edge(nil), edges...), Impact: impact, Confidence: result.CompoundedConfidence, Score: result.Score, Components: ScoreBreakdown{ImpactTier: result.ImpactTier, EdgeConfidences: result.EdgeConfidences, CompoundedConfidence: result.CompoundedConfidence, Score: result.Score}, Explanation: result.Explanation}, nil
 }
 
+func (g Graph) Nodes() []Node {
+	nodes := g.nodes()
+	result := make([]Node, 0, len(nodes))
+	for _, node := range nodes {
+		result = append(result, node)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Name == result[j].Name {
+			return result[i].ID < result[j].ID
+		}
+		return result[i].Name < result[j].Name
+	})
+	return result
+}
+
 func (g Graph) nodes() map[string]Node {
 	nodes := make(map[string]Node, len(g.Assets)+len(g.Identities))
 	for _, asset := range g.Assets {

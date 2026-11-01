@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"runtime"
-	"sort"
 	"strings"
 	"time"
 
@@ -37,7 +36,7 @@ func Run(requestedDB string) error {
 	if err != nil {
 		return err
 	}
-	if len(graph.Assets) == 0 {
+	if len(graph.Assets)+len(graph.Identities) == 0 {
 		history, historyErr := store.ImportHistory(ctx)
 		if historyErr != nil {
 			return historyErr
@@ -79,7 +78,7 @@ func Run(requestedDB string) error {
 		case "5":
 			printEvidence(graph)
 		case "6":
-			if err := printRemediation(graph); err != nil {
+			if err := printRemediation(app); err != nil {
 				return err
 			}
 		case "7":
@@ -88,7 +87,7 @@ func Run(requestedDB string) error {
 			}
 			printImports(store)
 		case "8":
-			if err := exportGraph(reader, graph); err != nil {
+			if err := exportReports(reader, app, graph); err != nil {
 				return err
 			}
 		case "9":
@@ -141,45 +140,29 @@ func Run(requestedDB string) error {
 	}
 }
 func printGraph(graph domain.Graph) {
-	for _, asset := range graph.Assets {
-		fmt.Printf("[%d/5] %s (%s)\n", asset.Impact, asset.Name, asset.ID)
+	for _, node := range graph.Nodes() {
+		fmt.Printf("[%d/5] %s (%s · %s)\n", node.Impact, node.Name, node.EntityType, node.ID)
 		for _, edge := range graph.Edges {
-			if edge.From == asset.ID {
+			if edge.From == node.ID {
 				fmt.Printf("  ── %s → %s\n", edge.Relation, edge.To)
 			}
 		}
 	}
 }
 
-func printRemediation(graph domain.Graph) error {
-	paths, err := graph.AllPaths(16, 1000)
+func printRemediation(app service.Service) error {
+	analysis, err := app.Analyze(context.Background(), 16, 1000)
 	if err != nil {
 		return err
 	}
-	counts := make(map[string]int)
-	edges := make(map[string]domain.Edge)
-	for _, path := range paths {
-		for _, edge := range path.Edges {
-			counts[edge.ID]++
-			edges[edge.ID] = edge
-		}
+	for index, item := range analysis.Remediation.Suggestions {
+		fmt.Printf("%d. %d paths · %d critical · %d risk points · review %s: %s — %s → %s\n   %s\n", index+1, item.PathsAffected, item.CriticalPaths, item.WeightedRiskPoints, item.EdgeID, item.Relation, item.From, item.To, item.Recommendation)
 	}
-	ids := make([]string, 0, len(counts))
-	for id := range counts {
-		ids = append(ids, id)
-	}
-	sort.Slice(ids, func(i, j int) bool {
-		if counts[ids[i]] == counts[ids[j]] {
-			return ids[i] < ids[j]
-		}
-		return counts[ids[i]] > counts[ids[j]]
-	})
-	for _, id := range ids {
-		edge := edges[id]
-		fmt.Printf("%d paths · review %s: %s — %s → %s\n", counts[id], edge.ID, edge.Relation, edge.From, edge.To)
-	}
-	if len(ids) == 0 {
+	if len(analysis.Remediation.Suggestions) == 0 {
 		fmt.Println("No path-affecting edges are currently available.")
+	}
+	if analysis.Paths.Truncated {
+		fmt.Println("Note: rankings cover the bounded path set; path enumeration was truncated.")
 	}
 	return nil
 }
@@ -195,7 +178,7 @@ func importGraph(reader *bufio.Reader, app service.Service, graph domain.Graph) 
 		fmt.Println("Import cancelled.")
 		return nil
 	}
-	if len(graph.Assets) > 0 {
+	if len(graph.Assets)+len(graph.Identities) > 0 {
 		fmt.Print("This replaces the current local graph. Continue? [y/N]: ")
 		answer, readErr := reader.ReadString('\n')
 		if readErr != nil && readErr != io.EOF {
@@ -225,46 +208,76 @@ func printImports(store *repository.Store) {
 		return
 	}
 	for _, item := range items {
-		fmt.Printf("%v · %v · assets %v · edges %v · %v\n", item["imported_at"], item["status"], item["assets"], item["edges"], item["message"])
+		fmt.Printf("%v · %v · assets %v · identities %v · misconfigurations %v · findings %v · edges %v · %v\n", item["imported_at"], item["status"], item["assets"], item["identities"], item["misconfigurations"], item["findings"], item["edges"], item["message"])
 	}
 	if len(items) == 0 {
 		fmt.Println("No imports are recorded.")
 	}
 }
 
-func exportGraph(reader *bufio.Reader, graph domain.Graph) error {
-	data, err := json.MarshalIndent(graph, "", "  ")
-	if err != nil {
-		return err
+func exportReports(reader *bufio.Reader, app service.Service, graph domain.Graph) error {
+	fmt.Print("Export [g]raph JSON, analysis [j]SON, or [m]arkdown (Enter cancels): ")
+	choice, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return fmt.Errorf("read report choice: %w", err)
 	}
-	fmt.Print("Export file [attackpath-graph.json]: ")
-	file, _ := reader.ReadString('\n')
+	choice = strings.ToLower(strings.TrimSpace(choice))
+	if choice == "" {
+		fmt.Println("Export cancelled.")
+		return nil
+	}
+	var data []byte
+	filename := ""
+	switch choice {
+	case "g":
+		data, err = json.MarshalIndent(graph, "", "  ")
+		filename = "attackpath-graph.json"
+	case "j":
+		data, err = app.RenderReport(context.Background(), "json")
+		filename = "attackpath-analysis.json"
+	case "m":
+		data, err = app.RenderReport(context.Background(), "markdown")
+		filename = "attackpath-report.md"
+	default:
+		return fmt.Errorf("choose g, j, or m")
+	}
+	if err != nil {
+		return fmt.Errorf("render report: %w", err)
+	}
+	fmt.Printf("Export file [%s]: ", filename)
+	file, readErr := reader.ReadString('\n')
+	if readErr != nil && readErr != io.EOF {
+		return fmt.Errorf("read report filename: %w", readErr)
+	}
 	file = strings.TrimSpace(file)
 	if file == "" {
-		file = "attackpath-graph.json"
+		file = filename
 	}
 	if _, err := os.Stat(file); err == nil {
 		fmt.Printf("%s exists. Replace it? [y/N]: ", file)
-		answer, _ := reader.ReadString('\n')
+		answer, readErr := reader.ReadString('\n')
+		if readErr != nil && readErr != io.EOF {
+			return fmt.Errorf("read overwrite confirmation: %w", readErr)
+		}
 		if !strings.EqualFold(strings.TrimSpace(answer), "y") && !strings.EqualFold(strings.TrimSpace(answer), "yes") {
 			fmt.Println("Export cancelled.")
 			return nil
 		}
 	}
 	if err := os.WriteFile(file, data, 0600); err != nil {
-		return fmt.Errorf("export graph: %w", err)
+		return fmt.Errorf("export report: %w", err)
 	}
 	fmt.Println("Exported to", file)
 	return nil
 }
 
 func printOverview(graph domain.Graph) error {
-	paths, err := graph.AllPaths(16, 1000)
+	result, err := graph.EnumeratePaths(16, 1000)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Assets: %d · Relationships: %d · Potential paths: %d\n", len(graph.Assets), len(graph.Edges), len(paths))
-	for index, path := range paths {
+	fmt.Printf("Assets: %d · Identities: %d · Relationships: %d · Potential paths: %d · expansions: %d · truncated: %t\n", len(graph.Assets), len(graph.Identities), len(graph.Edges), len(result.Paths), result.Expanded, result.Truncated)
+	for index, path := range result.Paths {
 		if index >= 5 {
 			break
 		}
@@ -274,22 +287,35 @@ func printOverview(graph domain.Graph) error {
 }
 
 func printPaths(graph domain.Graph) error {
-	paths, err := graph.AllPaths(16, 1000)
+	result, err := graph.EnumeratePaths(16, 1000)
 	if err != nil {
 		return err
 	}
-	for index, path := range paths {
-		fmt.Printf("%d. %s\n   %s · impact %d/5 · confidence %d%%\n", index+1, pathLabel(path), path.Explanation, path.Impact, path.Confidence)
+	for index, path := range result.Paths {
+		fmt.Printf("%d. %s\n   %s\n   Components: impact tier %d/5 × edge confidences %v = compounded %d%%; score %d\n", index+1, pathLabel(path), path.Explanation, path.Components.ImpactTier, path.Components.EdgeConfidences, path.Components.CompoundedConfidence, path.Components.Score)
 		for _, edge := range path.Edges {
-			fmt.Printf("   Evidence: %s · %s\n", edge.Evidence.Source, edge.Evidence.Finding)
+			fmt.Printf("   %s · %s · %d%% · source %s · finding %s · observed %s\n", edge.ID, edge.Relation, edge.Confidence, edge.Evidence.Source, edge.Evidence.Finding, edge.Evidence.Observed)
 		}
+	}
+	if result.Truncated {
+		fmt.Printf("Path listing truncated after %d expansions; rankings cover this bounded result.\n", result.Expanded)
 	}
 	return nil
 }
 
 func printAssets(graph domain.Graph) error {
-	for _, asset := range graph.Assets {
-		fmt.Printf("%s · %s · impact %d/5 · %s\n", asset.Name, asset.Kind, asset.Impact, asset.Description)
+	for _, node := range graph.Nodes() {
+		fmt.Printf("%s · %s/%s · impact %d/5 · %s\n", node.Name, node.EntityType, node.Kind, node.Impact, node.Description)
+		for _, item := range graph.Misconfigurations {
+			if item.AssetID == node.ID || item.IdentityID == node.ID {
+				fmt.Printf("  Misconfiguration S%d · %s\n", item.Severity, item.Title)
+			}
+		}
+		for _, item := range graph.Findings {
+			if item.AssetID == node.ID || item.IdentityID == node.ID {
+				fmt.Printf("  Finding S%d · %s · %s\n", item.Severity, item.Title, item.Source)
+			}
+		}
 	}
 	return nil
 }
@@ -329,9 +355,9 @@ func printNotifications(store *repository.Store, reader *bufio.Reader) {
 }
 
 func pathLabel(path domain.Path) string {
-	parts := make([]string, 0, len(path.Assets))
-	for _, asset := range path.Assets {
-		parts = append(parts, asset.Name)
+	parts := make([]string, 0, len(path.Nodes))
+	for _, node := range path.Nodes {
+		parts = append(parts, fmt.Sprintf("%s [%s]", node.Name, node.ID))
 	}
 	return strings.Join(parts, " → ")
 }
