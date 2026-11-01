@@ -46,7 +46,7 @@ jobs:
         run: |
           license_output=third-party-license-output
           test ! -e "$license_output"
-          if ! go run github.com/google/go-licenses@v1.6.0 save ./cmd/attackpath-visualizer --save_path "$license_output" > license-save.log 2>&1; then
+          if ! go run github.com/google/go-licenses@v1.6.0 --ignore=modernc.org/mathutil save ./cmd/attackpath-visualizer --save_path "$license_output" > license-save.log 2>&1; then
             diagnostics=$(tail -n 80 license-save.log)
             diagnostics=${diagnostics//'%'/'%25'}
             diagnostics=${diagnostics//$'\r'/'%0D'}
@@ -58,6 +58,7 @@ jobs:
           rm license-save.log
           mkdir -p assets/licenses
           cp LICENSE assets/licenses/AttackPath-Visualizer-MIT.txt
+          test -s assets/licenses/modernc-mathutil-BSD-3-Clause.txt
           if ! cp -R "$license_output"/. assets/licenses/; then
             echo '::error title=license bundle::Failed to copy generated license texts into assets/licenses.'
             exit 1
