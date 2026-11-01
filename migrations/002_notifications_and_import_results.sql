@@ -1,0 +1,3 @@
+CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY, event_type TEXT NOT NULL, severity INTEGER NOT NULL, title TEXT NOT NULL, detail TEXT NOT NULL, related_id TEXT NOT NULL, dedup_key TEXT NOT NULL, created_at TEXT NOT NULL, read_at TEXT NOT NULL DEFAULT '', delivered_at TEXT NOT NULL DEFAULT '');
+CREATE INDEX IF NOT EXISTS notifications_pending_idx ON notifications(delivered_at,read_at);
+CREATE TABLE IF NOT EXISTS notification_rules (event_type TEXT PRIMARY KEY, enabled INTEGER NOT NULL, minimum_severity INTEGER NOT NULL, quiet_start TEXT NOT NULL, quiet_end TEXT NOT NULL, detailed_text INTEGER NOT NULL);

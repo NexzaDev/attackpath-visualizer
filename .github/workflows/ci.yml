@@ -1,0 +1,110 @@
+name: CI
+on:
+  push:
+    branches: [main, "arena/65bc6e5a-attackpath-visualizer"]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  checks:
+    name: checks (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+          cache: true
+      - name: Install GUI build prerequisites from Fyne CI documentation
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bc gcc libgl1-mesa-dev libwayland-dev libx11-dev libxkbcommon-dev xorg-dev xvfb language-pack-en
+      - name: Install Windows C compiler
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc
+          update: true
+      - name: Verify module metadata
+        run: go mod tidy -diff
+      - name: Resolve module checksums
+        run: go mod download all
+      - name: Verify downloaded modules
+        run: go mod verify
+      - name: Verify formatting
+        shell: bash
+        run: |
+          files=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$files" ]; then
+            echo "::error title=Go formatting::Unformatted files: $files"
+            exit 1
+          fi
+      - name: Static analysis
+        shell: bash
+        run: |
+          set +e
+          go vet ./... > /tmp/go-vet.log 2>&1
+          status=$?
+          cat /tmp/go-vet.log
+          if [ "$status" -ne 0 ]; then
+            while IFS= read -r line; do printf '::error::%s\n' "$line"; done < /tmp/go-vet.log
+            exit "$status"
+          fi
+      - name: Unit and integration tests
+        shell: bash
+        run: |
+          set +e
+          go test ./... > /tmp/go-test.log 2>&1
+          status=$?
+          cat /tmp/go-test.log
+          if [ "$status" -ne 0 ]; then
+            awk '/^--- FAIL:/ { remaining=12 } /^FAIL[[:space:]]/ { print; next } remaining > 0 { print; remaining-- }' /tmp/go-test.log > /tmp/go-test-diagnostics.log
+            if [ ! -s /tmp/go-test-diagnostics.log ]; then tail -n 20 /tmp/go-test.log > /tmp/go-test-diagnostics.log; fi
+            while IFS= read -r line; do printf '::error::%s\n' "$line"; done < /tmp/go-test-diagnostics.log
+            exit "$status"
+          fi
+      - name: Build CLI-only and native GUI variants
+        shell: bash
+        run: go build -tags nogui ./... && go build ./...
+      - name: Render all dashboard screens with software renderer
+        if: runner.os == 'Linux'
+        run: go run ./cmd/render-screenshots -out artifacts/ui
+      - name: Upload screenshot evidence
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: attackpath-visualizer-ui-screenshots
+          path: artifacts/ui/*.png
+          if-no-files-found: error
+      - name: Dependency vulnerability scan
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          "$(go env GOPATH)/bin/govulncheck" ./... || { echo "::error title=govulncheck::Dependency vulnerability scan failed"; exit 1; }
+  race:
+    name: race detector (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+      - name: Install GUI build prerequisites from Fyne CI documentation
+        run: sudo apt-get update && sudo apt-get install -y bc gcc libgl1-mesa-dev libwayland-dev libx11-dev libxkbcommon-dev xorg-dev xvfb language-pack-en
+      - run: go mod download all
+      - name: Race-enabled tests
+        shell: bash
+        run: |
+          set +e
+          go test -race ./... > /tmp/go-race.log 2>&1
+          status=$?
+          cat /tmp/go-race.log
+          if [ "$status" -ne 0 ]; then
+            while IFS= read -r line; do printf '::error::%s\n' "$line"; done < /tmp/go-race.log
+            exit "$status"
+          fi
