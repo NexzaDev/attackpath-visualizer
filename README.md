@@ -7,8 +7,8 @@ The original product brief and acceptance criteria are preserved unchanged in [`
 ## Features
 
 - Native Go command-line interface and Fyne desktop dashboard, plus a terminal menu; choose a front end at launch, remember a choice, or override it with `--ui=gui`, `--ui=tui`, or `--ask`.
-- Directed asset graph with validation, explainable potential paths, evidence, confidence, impact, severity, remediation summaries, and deterministic offline demo data.
-- Local SQLite storage, schema migrations, bounded JSON import, atomic graph replacement, import history, and JSON export.
+- Directed asset/identity graph with validated misconfigurations, findings, required edge evidence, explainable impact/confidence scoring, cycle-safe bounded path ranking, and deterministic synthetic demo inventory.
+- Local SQLite storage, versioned migrations, strict bounded JSON ingestion, atomic graph replacement, detailed import/validation history, and graph export.
 - Overview, graph workspace, paths, assets, evidence, remediation, imports, reports, notifications, settings, About, usage guide, and sanitized diagnostics views.
 - In-app event notifications and optional per-user OS notifications. The background notifier is off by default, uses a read-only database connection and a private local delivery ledger, and makes no network calls.
 - Custom application icon, offline Noto Sans font assets, light/dark themes, keyboard shortcuts, and accessible text alternatives.
@@ -37,7 +37,9 @@ Launching with no subcommand opens the configured front end or asks which one to
 
 The first launch initializes a clearly labeled synthetic demo graph. Demo data is deterministic and stays local. It is safe to replace it with authorized inventory through the Import view or the CLI. Imports accept JSON up to 8 MiB, validate the complete graph before changing stored data, and replace the current graph only after explicit confirmation. The CLI form is `attackpath-visualizer import --yes inventory.json`; omit `--yes` in an interactive terminal to confirm at the prompt. Export writes the local graph as JSON to standard output.
 
-The graph schema has `assets` and `edges` arrays. An asset has a unique `id`, `name`, `kind`, impact from 1 to 5, and optional description. An edge has a unique `id`, `from`, `to`, relationship, confidence from 0 to 100, and optional source/finding/observed evidence. Self-edges, missing endpoints, duplicate IDs, invalid ranges, malformed JSON, and oversized imports are rejected. Paths are bounded simple directed paths, ranked by maximum asset impact multiplied by compounded edge confidence. Scores are prioritization aids, not exploitability claims.
+Inventory JSON accepts `schema_version: 1` (versionless legacy JSON is interpreted as version 1) and the arrays `assets`, `identities`, `misconfigurations`, `findings`, and `edges`. Assets and identities have unique IDs, names, kinds, and impact tiers from 1 to 5. Misconfigurations and findings must reference valid assets and optional identities; findings can point to a misconfiguration. Edges can connect assets and identities, must have confidence from 0 to 100, and require source, finding, and observed evidence. Unknown fields, trailing JSON, missing references, duplicate IDs, invalid ranges, missing evidence, malformed JSON, and empty inventories are rejected with an error recorded alongside the import source in SQLite.
+
+Ingestion is limited to 8 MiB, 10,000 assets, 10,000 identities, 50,000 edges, 50,000 findings, and 50,000 misconfigurations. Path enumeration is cycle-safe, capped at depth 32, output limit 1,000, and a 250,000-edge-expansion budget. It retains the highest-ranked simple paths under the cap and marks truncation. Path confidence is compounded edge-by-edge using integer floor at each step; score is the maximum node impact tier multiplied by that compounded confidence. Each ranked path carries its exact impact tier and ordered per-edge confidence inputs in the path object. Scores are prioritization aids, not exploitability claims.
 
 ## Build and verify
 

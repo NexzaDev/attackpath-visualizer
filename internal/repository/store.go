@@ -9,12 +9,21 @@ import (
 	"path/filepath"
 
 	"github.com/NexzaDev/attackpath-visualizer/internal/domain"
+	"github.com/NexzaDev/attackpath-visualizer/internal/notifications"
 	_ "modernc.org/sqlite"
 )
 
 type Store struct {
 	db   *sql.DB
 	path string
+}
+
+type ImportResult struct {
+	SchemaVersion         int
+	IdentityCount         int
+	FindingCount          int
+	MisconfigurationCount int
+	DocumentBytes         int
 }
 
 func Open(path string) (*Store, error) {
@@ -64,7 +73,17 @@ func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) Path() string { return s.path }
 
 func (s *Store) RecordFailedImport(ctx context.Context, source string) error {
-	_, err := s.db.ExecContext(ctx, "INSERT INTO imports(source,asset_count,edge_count,status,error_message) VALUES(?,0,0,'failed','Graph document did not pass validation.')", source)
+	return s.RecordImportFailure(ctx, source, "Graph document did not pass validation.")
+}
+
+func (s *Store) RecordImportFailure(ctx context.Context, source, message string) error {
+	if source == "" {
+		source = "local JSON import"
+	}
+	if message == "" {
+		message = "Graph document did not pass validation."
+	}
+	_, err := s.db.ExecContext(ctx, "INSERT INTO imports(source,asset_count,edge_count,status,error_message) VALUES(?,0,0,'failed',?)", source, message)
 	if err != nil {
 		return fmt.Errorf("record failed import: %w", err)
 	}
@@ -72,6 +91,10 @@ func (s *Store) RecordFailedImport(ctx context.Context, source string) error {
 }
 
 func (s *Store) ReplaceGraph(ctx context.Context, graph domain.Graph, source string) error {
+	return s.ReplaceGraphWithResult(ctx, graph, source, ImportResult{SchemaVersion: graph.SchemaVersion, IdentityCount: len(graph.Identities), FindingCount: len(graph.Findings), MisconfigurationCount: len(graph.Misconfigurations)})
+}
+
+func (s *Store) ReplaceGraphWithResult(ctx context.Context, graph domain.Graph, source string, result ImportResult) error {
 	if err := graph.Validate(); err != nil {
 		return err
 	}
@@ -80,15 +103,46 @@ func (s *Store) ReplaceGraph(ctx context.Context, graph domain.Graph, source str
 		return fmt.Errorf("begin import: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, "DELETE FROM edges"); err != nil {
-		return fmt.Errorf("clear relationships: %w", err)
-	}
-	if _, err = tx.ExecContext(ctx, "DELETE FROM assets"); err != nil {
-		return fmt.Errorf("clear assets: %w", err)
+	for _, statement := range []string{"DELETE FROM edges", "DELETE FROM findings", "DELETE FROM misconfigurations", "DELETE FROM identities", "DELETE FROM graph_nodes", "DELETE FROM assets"} {
+		if _, err = tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("clear prior graph data: %w", err)
+		}
 	}
 	for _, asset := range graph.Assets {
 		if _, err = tx.ExecContext(ctx, "INSERT INTO assets(id,name,kind,impact,description) VALUES(?,?,?,?,?)", asset.ID, asset.Name, asset.Kind, asset.Impact, asset.Description); err != nil {
 			return fmt.Errorf("save asset %q: %w", asset.ID, err)
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT INTO graph_nodes(id,entity_type,name,kind,impact,description) VALUES(?,'asset',?,?,?,?)", asset.ID, asset.Name, asset.Kind, asset.Impact, asset.Description); err != nil {
+			return fmt.Errorf("save graph node %q: %w", asset.ID, err)
+		}
+	}
+	for _, identity := range graph.Identities {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO identities(id,name,kind,impact,description) VALUES(?,?,?,?,?)", identity.ID, identity.Name, identity.Kind, identity.Impact, identity.Description); err != nil {
+			return fmt.Errorf("save identity %q: %w", identity.ID, err)
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT INTO graph_nodes(id,entity_type,name,kind,impact,description) VALUES(?,'identity',?,?,?,?)", identity.ID, identity.Name, identity.Kind, identity.Impact, identity.Description); err != nil {
+			return fmt.Errorf("save graph node %q: %w", identity.ID, err)
+		}
+	}
+	for _, item := range graph.Misconfigurations {
+		var identityID any
+		if item.IdentityID != "" {
+			identityID = item.IdentityID
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT INTO misconfigurations(id,asset_id,identity_id,title,severity,description) VALUES(?,?,?,?,?,?)", item.ID, item.AssetID, identityID, item.Title, item.Severity, item.Description); err != nil {
+			return fmt.Errorf("save misconfiguration %q: %w", item.ID, err)
+		}
+	}
+	for _, item := range graph.Findings {
+		var identityID, misconfigurationID any
+		if item.IdentityID != "" {
+			identityID = item.IdentityID
+		}
+		if item.MisconfigurationID != "" {
+			misconfigurationID = item.MisconfigurationID
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT INTO findings(id,asset_id,identity_id,misconfiguration_id,title,severity,source,observed) VALUES(?,?,?,?,?,?,?,?)", item.ID, item.AssetID, identityID, misconfigurationID, item.Title, item.Severity, item.Source, item.Observed); err != nil {
+			return fmt.Errorf("save finding %q: %w", item.ID, err)
 		}
 	}
 	for _, edge := range graph.Edges {
@@ -100,7 +154,7 @@ func (s *Store) ReplaceGraph(ctx context.Context, graph domain.Graph, source str
 			return fmt.Errorf("save edge %q: %w", edge.ID, err)
 		}
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO imports(source,asset_count,edge_count) VALUES(?,?,?)", source, len(graph.Assets), len(graph.Edges)); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO imports(source,asset_count,edge_count,schema_version,identity_count,finding_count,misconfiguration_count,document_bytes) VALUES(?,?,?,?,?,?,?,?)", source, len(graph.Assets), len(graph.Edges), result.SchemaVersion, result.IdentityCount, result.FindingCount, result.MisconfigurationCount, result.DocumentBytes); err != nil {
 		return fmt.Errorf("record import: %w", err)
 	}
 	if err = tx.Commit(); err != nil {
@@ -110,7 +164,7 @@ func (s *Store) ReplaceGraph(ctx context.Context, graph domain.Graph, source str
 }
 
 func (s *Store) Graph(ctx context.Context) (domain.Graph, error) {
-	graph := domain.Graph{Assets: make([]domain.Asset, 0), Edges: make([]domain.Edge, 0)}
+	graph := domain.Graph{SchemaVersion: 1, Assets: make([]domain.Asset, 0), Identities: make([]domain.Identity, 0), Misconfigurations: make([]domain.Misconfiguration, 0), Findings: make([]domain.Finding, 0), Edges: make([]domain.Edge, 0)}
 	rows, err := s.db.QueryContext(ctx, "SELECT id,name,kind,impact,description FROM assets ORDER BY name,id")
 	if err != nil {
 		return graph, fmt.Errorf("read assets: %w", err)
@@ -126,6 +180,57 @@ func (s *Store) Graph(ctx context.Context) (domain.Graph, error) {
 	if err = rows.Err(); err != nil {
 		rows.Close()
 		return graph, fmt.Errorf("read assets: %w", err)
+	}
+	rows.Close()
+	rows, err = s.db.QueryContext(ctx, "SELECT id,name,kind,impact,description FROM identities ORDER BY name,id")
+	if err != nil {
+		return graph, fmt.Errorf("read identities: %w", err)
+	}
+	for rows.Next() {
+		var identity domain.Identity
+		if err = rows.Scan(&identity.ID, &identity.Name, &identity.Kind, &identity.Impact, &identity.Description); err != nil {
+			rows.Close()
+			return graph, fmt.Errorf("read identity: %w", err)
+		}
+		graph.Identities = append(graph.Identities, identity)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return graph, fmt.Errorf("read identities: %w", err)
+	}
+	rows.Close()
+	rows, err = s.db.QueryContext(ctx, "SELECT id,asset_id,COALESCE(identity_id,''),title,severity,description FROM misconfigurations ORDER BY id")
+	if err != nil {
+		return graph, fmt.Errorf("read misconfigurations: %w", err)
+	}
+	for rows.Next() {
+		var item domain.Misconfiguration
+		if err = rows.Scan(&item.ID, &item.AssetID, &item.IdentityID, &item.Title, &item.Severity, &item.Description); err != nil {
+			rows.Close()
+			return graph, fmt.Errorf("read misconfiguration: %w", err)
+		}
+		graph.Misconfigurations = append(graph.Misconfigurations, item)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return graph, fmt.Errorf("read misconfigurations: %w", err)
+	}
+	rows.Close()
+	rows, err = s.db.QueryContext(ctx, "SELECT id,asset_id,COALESCE(identity_id,''),COALESCE(misconfiguration_id,''),title,severity,source,observed FROM findings ORDER BY id")
+	if err != nil {
+		return graph, fmt.Errorf("read findings: %w", err)
+	}
+	for rows.Next() {
+		var item domain.Finding
+		if err = rows.Scan(&item.ID, &item.AssetID, &item.IdentityID, &item.MisconfigurationID, &item.Title, &item.Severity, &item.Source, &item.Observed); err != nil {
+			rows.Close()
+			return graph, fmt.Errorf("read finding: %w", err)
+		}
+		graph.Findings = append(graph.Findings, item)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return graph, fmt.Errorf("read findings: %w", err)
 	}
 	rows.Close()
 	rows, err = s.db.QueryContext(ctx, "SELECT id,source_id,target_id,relation,confidence,evidence_json FROM edges ORDER BY id")
@@ -151,7 +256,7 @@ func (s *Store) Graph(ctx context.Context) (domain.Graph, error) {
 }
 
 func (s *Store) ImportHistory(ctx context.Context) ([]map[string]any, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT source,asset_count,edge_count,imported_at,status,error_message FROM imports ORDER BY id DESC LIMIT 50")
+	rows, err := s.db.QueryContext(ctx, "SELECT source,asset_count,edge_count,imported_at,status,error_message,schema_version,identity_count,finding_count,misconfiguration_count,document_bytes FROM imports ORDER BY id DESC LIMIT 50")
 	if err != nil {
 		return nil, fmt.Errorf("read import history: %w", err)
 	}
@@ -159,11 +264,11 @@ func (s *Store) ImportHistory(ctx context.Context) ([]map[string]any, error) {
 	items := make([]map[string]any, 0)
 	for rows.Next() {
 		var source, imported, status, message string
-		var assets, edges int
-		if err = rows.Scan(&source, &assets, &edges, &imported, &status, &message); err != nil {
-			return nil, err
+		var assets, edges, schema, identities, findings, misconfigurations, bytes int
+		if err = rows.Scan(&source, &assets, &edges, &imported, &status, &message, &schema, &identities, &findings, &misconfigurations, &bytes); err != nil {
+			return nil, fmt.Errorf("read import result: %w", err)
 		}
-		items = append(items, map[string]any{"source": source, "assets": assets, "edges": edges, "imported_at": imported, "status": status, "message": message})
+		items = append(items, map[string]any{"source": source, "assets": assets, "edges": edges, "identities": identities, "findings": findings, "misconfigurations": misconfigurations, "schema_version": schema, "document_bytes": bytes, "imported_at": imported, "status": status, "message": message})
 	}
 	return items, rows.Err()
 }

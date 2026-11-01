@@ -18,6 +18,8 @@ func TestLegacySchemaMigratesWithoutLosingGraph(t *testing.T) {
 		`CREATE TABLE edges (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL, confidence INTEGER NOT NULL, evidence_json TEXT NOT NULL)`,
 		`CREATE TABLE imports (id INTEGER PRIMARY KEY, source TEXT NOT NULL, asset_count INTEGER NOT NULL, edge_count INTEGER NOT NULL, imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
 		`INSERT INTO assets(id,name,kind,impact,description) VALUES('legacy','Legacy node','service',4,'preserved')`,
+		`INSERT INTO assets(id,name,kind,impact,description) VALUES('legacy-target','Legacy target','database',5,'preserved')`,
+		`INSERT INTO edges(id,source_id,target_id,relation,confidence,evidence_json) VALUES('legacy-edge','legacy','legacy-target','reads',70,'{}')`,
 	} {
 		if _, err = db.Exec(statement); err != nil {
 			t.Fatal(err)
@@ -35,8 +37,11 @@ func TestLegacySchemaMigratesWithoutLosingGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(graph.Assets) != 1 || graph.Assets[0].ID != "legacy" {
-		t.Fatalf("legacy graph was not preserved: %#v", graph)
+	if len(graph.Assets) != 2 || graph.Assets[0].ID != "legacy" || len(graph.Edges) != 1 || graph.Edges[0].Evidence.Source != "legacy://no-recorded-evidence" {
+		t.Fatalf("legacy graph was not preserved and normalized: %#v", graph)
+	}
+	if err = graph.Validate(); err != nil {
+		t.Fatalf("migrated legacy graph is not valid: %v", err)
 	}
 	if err = store.RecordFailedImport(context.Background(), "invalid input"); err != nil {
 		t.Fatal(err)
@@ -49,7 +54,7 @@ func TestLegacySchemaMigratesWithoutLosingGraph(t *testing.T) {
 	if err = store.db.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 {
+	if version != 4 {
 		t.Fatalf("migration version = %d", version)
 	}
 }

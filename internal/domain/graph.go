@@ -68,6 +68,7 @@ type Edge struct {
 }
 
 type Graph struct {
+	SchemaVersion     int                `json:"schema_version,omitempty"`
 	Assets            []Asset            `json:"assets"`
 	Identities        []Identity         `json:"identities,omitempty"`
 	Misconfigurations []Misconfiguration `json:"misconfigurations,omitempty"`

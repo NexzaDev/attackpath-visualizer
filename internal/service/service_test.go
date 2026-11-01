@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/NexzaDev/attackpath-visualizer/internal/ingestion"
 	"github.com/NexzaDev/attackpath-visualizer/internal/repository"
 )
 
@@ -28,6 +30,10 @@ func TestImportRejectsInvalidInputWithoutReplacingState(t *testing.T) {
 	}
 	if len(graph.Assets) != 1 || graph.Assets[0].ID != "a" {
 		t.Fatalf("existing graph was changed: %#v", graph)
+	}
+	history, err := store.ImportHistory(context.Background())
+	if err != nil || len(history) != 2 || history[0]["source"] != "bad" || history[0]["status"] != "failed" || !strings.Contains(fmt.Sprint(history[0]["message"]), "inventory JSON schema") {
+		t.Fatalf("validation history=%v err=%v", history, err)
 	}
 }
 
@@ -102,7 +108,11 @@ func TestImportRejectsOversizedDocument(t *testing.T) {
 	}
 	defer store.Close()
 	app := Service{Store: store}
-	if err := app.Import(context.Background(), strings.NewReader(strings.Repeat("x", maxImportBytes+1)), "large"); err == nil {
-		t.Fatal("expected size error")
+	if err := app.Import(context.Background(), strings.NewReader(strings.Repeat("x", ingestion.MaxDocumentBytes+1)), "large"); err == nil || !strings.Contains(err.Error(), "byte limit") {
+		t.Fatalf("expected size error, got %v", err)
+	}
+	history, err := store.ImportHistory(context.Background())
+	if err != nil || len(history) != 1 || history[0]["source"] != "large" || history[0]["status"] != "failed" || !strings.Contains(fmt.Sprint(history[0]["message"]), "byte limit") {
+		t.Fatalf("oversized validation history=%v err=%v", history, err)
 	}
 }

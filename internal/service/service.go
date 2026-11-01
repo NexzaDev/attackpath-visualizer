@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -12,11 +11,10 @@ import (
 
 	"github.com/NexzaDev/attackpath-visualizer/assets"
 	"github.com/NexzaDev/attackpath-visualizer/internal/domain"
+	"github.com/NexzaDev/attackpath-visualizer/internal/ingestion"
 	"github.com/NexzaDev/attackpath-visualizer/internal/notifications"
 	"github.com/NexzaDev/attackpath-visualizer/internal/repository"
 )
-
-const maxImportBytes = 8 << 20
 
 type Service struct{ Store *repository.Store }
 
@@ -29,32 +27,26 @@ func (s Service) LoadDemo(ctx context.Context) error {
 }
 
 func (s Service) Import(ctx context.Context, reader io.Reader, source string) error {
-	data, err := io.ReadAll(io.LimitReader(reader, maxImportBytes+1))
+	if source == "" {
+		source = "local JSON import"
+	}
+	graph, validation, err := ingestion.Read(reader)
 	if err != nil {
-		return s.validationFailure(ctx, fmt.Errorf("read import: %w", err))
-	}
-	if len(data) > maxImportBytes {
-		return s.validationFailure(ctx, fmt.Errorf("import exceeds the %d byte limit", maxImportBytes))
-	}
-	var graph domain.Graph
-	if err = json.Unmarshal(data, &graph); err != nil {
-		return s.validationFailure(ctx, fmt.Errorf("parse graph JSON: %w", err))
-	}
-	if err = graph.Validate(); err != nil {
-		return s.validationFailure(ctx, fmt.Errorf("validate graph: %w", err))
+		return s.validationFailure(ctx, source, err)
 	}
 	previous, err := s.Store.Graph(ctx)
 	if err != nil {
 		return fmt.Errorf("read existing graph: %w", err)
 	}
-	if err = s.Store.ReplaceGraph(ctx, graph, source); err != nil {
+	result := repository.ImportResult{SchemaVersion: validation.SchemaVersion, IdentityCount: validation.Identities, FindingCount: validation.Findings, MisconfigurationCount: validation.Misconfigurations, DocumentBytes: validation.DocumentBytes}
+	if err = s.Store.ReplaceGraphWithResult(ctx, graph, source, result); err != nil {
 		return err
 	}
 	return s.recordNewCriticalPaths(ctx, previous, graph)
 }
 
-func (s Service) validationFailure(ctx context.Context, cause error) error {
-	if err := s.Store.RecordFailedImport(ctx, "local JSON import"); err != nil {
+func (s Service) validationFailure(ctx context.Context, source string, cause error) error {
+	if err := s.Store.RecordImportFailure(ctx, source, cause.Error()); err != nil {
 		return fmt.Errorf("%w; record validation result: %v", cause, err)
 	}
 	rules, err := s.Store.NotificationRules(ctx)
@@ -116,9 +108,9 @@ func isCriticalPath(path domain.Path) bool {
 }
 
 func pathSignature(path domain.Path) string {
-	parts := make([]string, 0, len(path.Assets)+len(path.Edges))
-	for _, asset := range path.Assets {
-		parts = append(parts, "asset:"+asset.ID)
+	parts := make([]string, 0, len(path.Nodes)+len(path.Edges))
+	for _, node := range path.Nodes {
+		parts = append(parts, "node:"+node.ID)
 	}
 	for _, edge := range path.Edges {
 		parts = append(parts, "edge:"+edge.ID)
