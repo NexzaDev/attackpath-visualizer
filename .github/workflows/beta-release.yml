@@ -54,9 +54,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          license_output=third-party-license-output
+          test ! -e "$license_output"
+          go run github.com/google/go-licenses@v1.6.0 save ./cmd/attackpath-visualizer --save_path "$license_output"
           mkdir -p assets/licenses
           cp LICENSE assets/licenses/AttackPath-Visualizer-MIT.txt
-          go run github.com/google/go-licenses@v1.6.0 save ./cmd/attackpath-visualizer --save_path assets/licenses
+          cp -R "$license_output"/. assets/licenses/
           go run github.com/google/go-licenses@v1.6.0 report ./cmd/attackpath-visualizer > THIRD_PARTY_NOTICES.md
           cp THIRD_PARTY_NOTICES.md assets/docs/THIRD_PARTY_NOTICES.md
       - name: Build GUI package and bundle required files
