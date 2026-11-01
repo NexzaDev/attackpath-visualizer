@@ -122,7 +122,16 @@ jobs:
               test -s release-output/windows-bundle/LICENSE
               test -s release-output/windows-bundle/THIRD_PARTY_NOTICES.md
               test -n "$(find release-output/windows-bundle/licenses -type f -print -quit)"
-              pwsh -NoProfile -Command 'Add-Type -AssemblyName System.Drawing; $icon = [System.Drawing.Icon]::ExtractAssociatedIcon("release-output/windows-bundle/AttackPath Visualizer.exe"); if ($null -eq $icon) { throw "No executable icon resource was found" }; $icon.Save("release-output/windows-icon-check.ico"); if ((Get-Item "release-output/windows-icon-check.ico").Length -lt 100) { throw "Extracted application icon is unexpectedly small" }'
+              if ! pwsh -NoProfile -Command 'Add-Type -AssemblyName System.Drawing; $icon = [System.Drawing.Icon]::ExtractAssociatedIcon("release-output/windows-bundle/AttackPath Visualizer.exe"); if ($null -eq $icon) { throw "No executable icon resource was found" }; $icon.Save("release-output/windows-icon-check.ico"); if ((Get-Item "release-output/windows-icon-check.ico").Length -lt 100) { throw "Extracted application icon is unexpectedly small" }' > windows-icon-check.log 2>&1; then
+                cat windows-icon-check.log
+                diagnostics=$(tail -n 80 windows-icon-check.log)
+                diagnostics=${diagnostics//'%'/'%25'}
+                diagnostics=${diagnostics//$'\r'/'%0D'}
+                diagnostics=${diagnostics//$'\n'/'%0A'}
+                printf '::error title=Windows executable icon verification::%s\n' "$diagnostics"
+                exit 1
+              fi
+              cat windows-icon-check.log
               pwsh -NoProfile -Command "Compress-Archive -Path 'release-output/windows-bundle/*' -DestinationPath 'release-output/attackpath-visualizer-windows-x64.zip' -Force"
               test -s release-output/attackpath-visualizer-windows-x64.zip
               ;;
