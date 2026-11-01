@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"github.com/NexzaDev/attackpath-visualizer/internal/domain"
-	"github.com/NexzaDev/attackpath-visualizer/internal/notifications"
 	_ "modernc.org/sqlite"
 )
 
