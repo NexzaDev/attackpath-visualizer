@@ -27,16 +27,16 @@ func TestRankPrioritizesChokePointByPathsBrokenAndRisk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths.Paths) != 3 {
-		t.Fatalf("expected three paths, got %d", len(paths.Paths))
+	if len(paths.Paths) != 5 {
+		t.Fatalf("expected five source-rooted path prefixes, got %d", len(paths.Paths))
 	}
 	paths.Truncated = true
 	result := Rank(graph, paths)
-	if len(result.Suggestions) != 5 || result.PathsConsidered != 3 || !result.PathsTruncated {
+	if len(result.Suggestions) != 5 || result.PathsConsidered != 5 || !result.PathsTruncated {
 		t.Fatalf("unexpected remediation result: %#v", result)
 	}
 	first := result.Suggestions[0]
-	if first.EdgeID != "entry-broker" || first.PathsAffected != 3 || first.WeightedRiskPoints == 0 {
+	if first.EdgeID != "entry-broker" || first.PathsAffected != 5 || first.WeightedRiskPoints == 0 {
 		t.Fatalf("shared choke point was not ranked first: %#v", first)
 	}
 	if first.CriticalPaths != 3 || first.Recommendation == "" {

@@ -25,7 +25,7 @@ func TestImportRankRemediationAndReportsEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(analysis.Paths.Paths) != 3 || analysis.Paths.Truncated {
+	if len(analysis.Paths.Paths) != 4 || analysis.Paths.Truncated {
 		t.Fatalf("unexpected ranked path result: %#v", analysis.Paths)
 	}
 	if analysis.Paths.Paths[0].Score != 475 || analysis.Paths.Paths[0].Components.EdgeConfidences[0] != 100 || analysis.Paths.Paths[0].Components.EdgeConfidences[1] != 95 {
@@ -43,10 +43,10 @@ func TestImportRankRemediationAndReportsEndToEnd(t *testing.T) {
 	for _, band := range summary.Confidence {
 		confidenceCount += band.Count
 	}
-	if impactCount != 3 || confidenceCount != 3 {
+	if impactCount != 4 || confidenceCount != 4 {
 		t.Fatalf("overview distributions omit enumerated paths: impacts=%v confidence=%v", summary.PathsByImpact, summary.Confidence)
 	}
-	if len(analysis.Remediation.Suggestions) != 4 || analysis.Remediation.Suggestions[0].EdgeID != "entry-broker" || analysis.Remediation.Suggestions[0].PathsAffected != 2 {
+	if len(analysis.Remediation.Suggestions) != 4 || analysis.Remediation.Suggestions[0].EdgeID != "entry-broker" || analysis.Remediation.Suggestions[0].PathsAffected != 3 {
 		t.Fatalf("choke point remediation ranking incorrect: %#v", analysis.Remediation)
 	}
 	jsonReport, err := app.RenderReport(context.Background(), "json")
@@ -57,7 +57,7 @@ func TestImportRankRemediationAndReportsEndToEnd(t *testing.T) {
 	if err = json.Unmarshal(jsonReport, &bundle); err != nil {
 		t.Fatal(err)
 	}
-	if bundle.PathCount != 3 || bundle.Remediation.Suggestions[0].EdgeID != "entry-broker" || bundle.Paths[0].Components.Score != 475 {
+	if bundle.PathCount != 4 || bundle.Remediation.Suggestions[0].EdgeID != "entry-broker" || bundle.Paths[0].Components.Score != 475 {
 		t.Fatalf("JSON report omitted the computed results: %#v", bundle)
 	}
 	markdownReport, err := app.RenderReport(context.Background(), "markdown")
