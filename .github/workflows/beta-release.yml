@@ -57,12 +57,11 @@ jobs:
           license_output=third-party-license-output
           test ! -e "$license_output"
           if ! go run github.com/google/go-licenses@v1.6.0 save ./cmd/attackpath-visualizer --save_path "$license_output" > license-save.log 2>&1; then
-            while IFS= read -r line; do
-              line=${line//'%'/'%25'}
-              line=${line//$'\r'/'%0D'}
-              line=${line//$'\n'/'%0A'}
-              printf '::error title=go-licenses save::%s\n' "$line"
-            done < <(tail -n 30 license-save.log)
+            diagnostics=$(tail -n 80 license-save.log)
+            diagnostics=${diagnostics//'%'/'%25'}
+            diagnostics=${diagnostics//$'\r'/'%0D'}
+            diagnostics=${diagnostics//$'\n'/'%0A'}
+            printf '::error title=go-licenses save::%s\n' "$diagnostics"
             exit 1
           fi
           cat license-save.log
